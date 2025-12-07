@@ -23,7 +23,9 @@ typedef Gea3MqttBridge_t self_t;
 enum {
   retry_delay = 100,
   polling_delay = 10000,
-  appliance_lost_timeout = 30000
+  appliance_lost_timeout = 60000,
+  mqtt_info_update_period = 1000,
+  ticks_per_second = 1000
 };
 
 enum {
@@ -80,6 +82,40 @@ enum {
 //     nvStorage.end();
 //   }
 // }
+
+static void publishMqttInfo(void* context)
+{
+  self_t* self = (self_t*)context;
+
+  self->uptime += (mqtt_info_update_period / ticks_per_second);
+  auto uptimePayload = String(self->uptime);
+  mqtt_client_publish_sub_topic(self->mqtt_client, "uptime", uptimePayload.c_str());
+
+  auto minHeapPayload = String(esp_get_minimum_free_heap_size());
+  mqtt_client_publish_sub_topic(self->mqtt_client, "minHeap", minHeapPayload.c_str());
+
+  auto currentHeapPayload = String(esp_get_free_heap_size());
+  mqtt_client_publish_sub_topic(self->mqtt_client, "currentHeap", currentHeapPayload.c_str());
+
+  auto lastErdPayload = String(self->lastErdPolledSuccessfully, HEX);
+  while(lastErdPayload.length() < 4) {
+    lastErdPayload = "0" + lastErdPayload;
+  }
+  lastErdPayload = "0x" + lastErdPayload;
+  mqtt_client_publish_sub_topic(self->mqtt_client, "lastErd", lastErdPayload.c_str());
+}
+
+static void startMqttInfoTimer(self_t* self)
+{
+  self->uptime = 0;
+  tiny_timer_start_periodic(self->timer_group, &self->mqttInformationTimer, mqtt_info_update_period, self, publishMqttInfo);
+}
+
+static void stopMqttInfoTimer(self_t* self)
+{
+  self->uptime = 0xFFFFFFFF;
+  tiny_timer_stop(self->timer_group, &self->mqttInformationTimer);
+}
 
 static void arm_timer(self_t* self, tiny_timer_ticks_t ticks)
 {
@@ -444,6 +480,7 @@ void gea3_mqtt_bridge_init(
   self->erd_client = erd_client;
   self->mqtt_client = mqtt_client;
   self->erd_set = reinterpret_cast<void*>(new set<tiny_erd_t>());
+  startMqttInfoTimer(self);
 
   tiny_event_subscription_init(
     &self->erd_client_activity_subscription, self, +[](void* context, const void* _args) {
@@ -500,5 +537,8 @@ void gea3_mqtt_bridge_init(
 
 void gea3_mqtt_bridge_destroy(self_t* self)
 {
+  Serial.println("Bridge destroy start");
+  stopMqttInfoTimer(self);
   delete reinterpret_cast<set<tiny_erd_t>*>(self->erd_set);
+  Serial.println("Bridge destroy done");
 }
