@@ -424,6 +424,7 @@ static tiny_hsm_result_t state_polling(tiny_hsm_t* hsm, tiny_hsm_signal_t signal
     case signal_read_completed:
       disarm_timer(self);
       reset_lost_appliance_timer(self);
+      self->lastErdPolledSuccessfully = self->erd_polling_list[self->erd_index - 1];
       mqtt_client_update_erd(
         self->mqtt_client,
         args->read_completed.erd,
