@@ -1,14 +1,22 @@
 /*!
  * @file
  * @brief Zigbee Client - provides Client interface for Zigbee communication
+ * 
+ * This is a stub implementation that provides the structure for MQTT-over-Zigbee.
+ * Full implementation requires ESP-IDF Zigbee stack integration.
+ * 
+ * Architecture:
+ * - ESP32-C6 acts as Zigbee end device
+ * - Sends data to Zigbee coordinator
+ * - Coordinator bridges messages to MQTT broker
+ * - Coordinator forwards MQTT messages back to device
  */
 
-#ifndef ZigbeeMqttBridge_h
-#define ZigbeeMqttBridge_h
+#ifndef ZigbeeClient_h
+#define ZigbeeClient_h
 
 #include <Arduino.h>
 #include <Client.h>
-#include "esp_zigbee_core.h"
 
 // Maximum message size for Zigbee transmission
 #define ZIGBEE_MAX_PAYLOAD_SIZE 82
@@ -16,6 +24,11 @@
 /**
  * @brief ZigbeeClient implements the Arduino Client interface for Zigbee communication
  * This allows PubSubClient to work over Zigbee instead of WiFi
+ * 
+ * NOTE: This is a stub implementation. Full Zigbee stack integration requires:
+ * 1. ESP-IDF framework with Zigbee libraries
+ * 2. Zigbee coordinator device acting as MQTT gateway
+ * 3. Custom message protocol for MQTT-over-Zigbee
  */
 class ZigbeeClient : public Client {
 public:
@@ -38,7 +51,6 @@ public:
     
     // Zigbee-specific methods
     void setZigbeeConnected(bool connected);
-    bool sendZigbeeMessage(const uint8_t* data, size_t length);
     
 private:
     bool isConnected;
@@ -46,7 +58,9 @@ private:
     size_t readBufferPos;
     size_t readBufferLen;
     
-    esp_zb_zcl_custom_cluster_cmd_req_t cmdReq;
+    // Stub method for sending Zigbee messages
+    // Full implementation would use esp_zigbee_zcl_custom_cluster_cmd_req
+    bool sendZigbeeMessage(const uint8_t* data, size_t length);
 };
 
 #endif

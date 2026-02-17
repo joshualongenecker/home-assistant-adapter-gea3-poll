@@ -1,22 +1,16 @@
 /*!
  * @file
- * @brief Zigbee Client implementation - provides Client interface for Zigbee
+ * @brief Zigbee Client implementation - stub for Zigbee communication
  */
 
-#include "ZigbeeMqttBridge.h"
-#include "esp_log.h"
-#include <string.h>
-
-static const char* TAG = "ZigbeeClient";
-
-// Custom cluster ID for GEA3 MQTT messages
-#define GEA3_MQTT_CLUSTER_ID 0xFC00
-#define GEA3_MQTT_CMD_DATA 0x00
+#include "ZigbeeClient.h"
+#include <Arduino.h>
 
 ZigbeeClient::ZigbeeClient()
     : isConnected(false), readBufferPos(0), readBufferLen(0)
 {
-    ESP_LOGI(TAG, "ZigbeeClient created");
+    Serial.println("ZigbeeClient: Initialized (stub implementation)");
+    Serial.println("ZigbeeClient: Full Zigbee support requires ESP-IDF integration");
     memset(readBuffer, 0, sizeof(readBuffer));
 }
 
@@ -26,18 +20,16 @@ ZigbeeClient::~ZigbeeClient()
 
 int ZigbeeClient::connect(IPAddress ip, uint16_t port)
 {
-    // Zigbee connection is handled by the stack
-    // This just marks the client as ready
-    ESP_LOGI(TAG, "ZigbeeClient connect (IP mode)");
+    Serial.printf("ZigbeeClient: Connect to %s:%d\n", ip.toString().c_str(), port);
+    // In full implementation, this would join Zigbee network
     isConnected = true;
     return 1;
 }
 
 int ZigbeeClient::connect(const char *host, uint16_t port)
 {
-    // Zigbee connection is handled by the stack
-    // This just marks the client as ready
-    ESP_LOGI(TAG, "ZigbeeClient connect to %s:%d", host, port);
+    Serial.printf("ZigbeeClient: Connect to %s:%d\n", host, port);
+    // In full implementation, this would join Zigbee network
     isConnected = true;
     return 1;
 }
@@ -50,12 +42,13 @@ size_t ZigbeeClient::write(uint8_t val)
 size_t ZigbeeClient::write(const uint8_t *buf, size_t size)
 {
     if (!isConnected) {
-        ESP_LOGE(TAG, "Not connected");
+        Serial.println("ZigbeeClient: Cannot write - not connected");
         return 0;
     }
     
     if (size > ZIGBEE_MAX_PAYLOAD_SIZE) {
-        ESP_LOGW(TAG, "Message truncated from %zu to %d bytes", size, ZIGBEE_MAX_PAYLOAD_SIZE);
+        Serial.printf("ZigbeeClient: Message truncated from %zu to %d bytes\n", 
+                     size, ZIGBEE_MAX_PAYLOAD_SIZE);
         size = ZIGBEE_MAX_PAYLOAD_SIZE;
     }
     
@@ -110,7 +103,7 @@ void ZigbeeClient::flush()
 
 void ZigbeeClient::stop()
 {
-    ESP_LOGI(TAG, "ZigbeeClient stopped");
+    Serial.println("ZigbeeClient: Stopped");
     isConnected = false;
     readBufferPos = 0;
     readBufferLen = 0;
@@ -129,33 +122,34 @@ ZigbeeClient::operator bool()
 void ZigbeeClient::setZigbeeConnected(bool connected)
 {
     isConnected = connected;
+    if (connected) {
+        Serial.println("ZigbeeClient: Zigbee network connected");
+    } else {
+        Serial.println("ZigbeeClient: Zigbee network disconnected");
+    }
 }
 
 bool ZigbeeClient::sendZigbeeMessage(const uint8_t* data, size_t length)
 {
     if (!isConnected) {
-        ESP_LOGE(TAG, "Cannot send: not connected to Zigbee network");
+        Serial.println("ZigbeeClient: Cannot send - not connected to Zigbee network");
         return false;
     }
     
-    // Send custom cluster command to coordinator
-    esp_zb_zcl_custom_cluster_cmd_req_t cmd_req;
-    cmd_req.zcl_basic_cmd.dst_addr_u.addr_short = 0x0000; // Coordinator address
-    cmd_req.zcl_basic_cmd.dst_endpoint = 1;
-    cmd_req.zcl_basic_cmd.src_endpoint = 1;
-    cmd_req.address_mode = ESP_ZB_APS_ADDR_MODE_16_ENDP_PRESENT;
-    cmd_req.cluster_id = GEA3_MQTT_CLUSTER_ID;
-    cmd_req.custom_cmd_id = GEA3_MQTT_CMD_DATA;
-    cmd_req.data.type = ESP_ZB_ZCL_ATTR_TYPE_CHAR_STRING;
-    cmd_req.data.value = (void*)data;
-    cmd_req.data.size = length;
+    // STUB: In full implementation, this would:
+    // 1. Use esp_zigbee_zcl_custom_cluster_cmd_req to send data
+    // 2. Send to coordinator (address 0x0000)
+    // 3. Coordinator would forward to MQTT broker
     
-    esp_err_t err = esp_zb_zcl_custom_cluster_cmd_req(&cmd_req);
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to send Zigbee message: %d", err);
-        return false;
+    Serial.printf("ZigbeeClient: [STUB] Sending %zu bytes over Zigbee\n", length);
+    Serial.print("ZigbeeClient: Data: ");
+    for (size_t i = 0; i < min(length, (size_t)32); i++) {
+        Serial.printf("%02X ", data[i]);
     }
+    if (length > 32) {
+        Serial.print("...");
+    }
+    Serial.println();
     
-    ESP_LOGI(TAG, "Sent %zu bytes over Zigbee", length);
     return true;
 }
