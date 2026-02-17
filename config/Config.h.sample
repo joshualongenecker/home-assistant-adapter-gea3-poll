@@ -13,6 +13,10 @@ const char* ZIGBEE_MANUFACTURER = "GE Appliances";
 const char* ZIGBEE_MODEL = "GEA3-MQTT-Bridge";
 const uint8_t ZIGBEE_ENDPOINT = 1;
 
+// GEA3 Serial pins (ESP32-C6)
+const uint8_t GEA3_RX_PIN = 6;
+const uint8_t GEA3_TX_PIN = 7;
+
 // MQTT configuration (used for compatibility with existing bridge code)
 // Note: In Zigbee mode, these are not used for network connection
 // but may be used for message formatting

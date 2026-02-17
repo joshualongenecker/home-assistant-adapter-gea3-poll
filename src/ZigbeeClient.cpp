@@ -9,8 +9,8 @@
 ZigbeeClient::ZigbeeClient()
     : isConnected(false), readBufferPos(0), readBufferLen(0)
 {
-    Serial.println("ZigbeeClient: Initialized (stub implementation)");
-    Serial.println("ZigbeeClient: Full Zigbee support requires ESP-IDF integration");
+    Serial.println("ZigbeeClient: Initialized (stub implementation)\n"
+                   "ZigbeeClient: Full Zigbee support requires ESP-IDF integration");
     memset(readBuffer, 0, sizeof(readBuffer));
 }
 

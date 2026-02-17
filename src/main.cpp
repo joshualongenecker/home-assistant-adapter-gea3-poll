@@ -144,10 +144,11 @@ void setup()
     configureMqtt();
     
     // Initialize serial for GEA3 communication
-    // GPIO pins for ESP32-C6 (adjust based on your board's pin mapping)
+    // GPIO pins for ESP32-C6 (defined in Config.h)
     Serial.println("Initializing GEA3 serial interface...");
-    Serial1.begin(HomeAssistantGea3Bridge::baud, SERIAL_8N1, 6, 7);
-    Serial.printf("Serial1: Baud=%d, RX=GPIO6, TX=GPIO7\n", HomeAssistantGea3Bridge::baud);
+    Serial1.begin(HomeAssistantGea3Bridge::baud, SERIAL_8N1, GEA3_RX_PIN, GEA3_TX_PIN);
+    Serial.printf("Serial1: Baud=%d, RX=GPIO%d, TX=GPIO%d\n", 
+                  HomeAssistantGea3Bridge::baud, GEA3_RX_PIN, GEA3_TX_PIN);
     
     // Initialize bridge
     bridge.begin(mqttClient, Serial1, deviceId);
