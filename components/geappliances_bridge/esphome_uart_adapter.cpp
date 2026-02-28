@@ -50,7 +50,7 @@ static i_tiny_event_t *on_receive(i_tiny_uart_t *_self)
 
 static const i_tiny_uart_api_t api = {send, on_send_complete, on_receive};
 
-extern "C" void esphome_uart_adapter_init(
+void esphome_uart_adapter_init(
   esphome_uart_adapter_t *self,
   tiny_timer_group_t *timer_group,
   esphome::uart::UARTComponent *uart)
