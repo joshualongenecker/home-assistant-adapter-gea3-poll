@@ -114,25 +114,36 @@ static void _update_erd(i_mqtt_client_t *self, tiny_erd_t erd, const void *data,
     payload += hex_byte;
   }
 
-  esphome::mqtt::global_mqtt_client->publish(topic, payload, 0, false);
+  esphome::mqtt::global_mqtt_client->publish(topic, payload, 0, true);
 }
 
 static void _update_erd_write_result(i_mqtt_client_t *self, tiny_erd_t erd, bool success, tiny_gea3_erd_client_write_failure_reason_t reason)
 {
   auto adapter = adapter_from(self);
-  std::string topic = erd_topic(adapter->device_id, erd, "writeResult");
+  std::string topic = erd_topic(adapter->device_id, erd, "write_result");
 
   std::string payload;
   if(success) {
-    payload = "OK";
+    payload = "success";
   }
   else {
-    char buf[32];
-    snprintf(buf, sizeof(buf), "FAILED:%u", static_cast<unsigned>(reason));
-    payload = buf;
+    switch(reason) {
+      case tiny_gea3_erd_client_write_failure_reason_retries_exhausted:
+        payload = "retries exhausted";
+        break;
+      case tiny_gea3_erd_client_write_failure_reason_not_supported:
+        payload = "not supported";
+        break;
+      case tiny_gea3_erd_client_write_failure_reason_incorrect_size:
+        payload = "incorrect size";
+        break;
+      default:
+        payload = "unknown error";
+        break;
+    }
   }
 
-  esphome::mqtt::global_mqtt_client->publish(topic, payload, 0, false);
+  esphome::mqtt::global_mqtt_client->publish(topic, payload, 0, true);
 }
 
 static i_tiny_event_t *_on_write_request(i_mqtt_client_t *self)

@@ -358,19 +358,74 @@ geappliances_bridge:
 
 ---
 
-## 10. Summary of all changed / new files
+## 10. MQTT `set_on_disconnect` breaks ESPHome reconnection
+
+### The problem
+
+ESPHome's `MQTTClientComponent::set_on_disconnect()` works by:
+
+1. **Replacing** the MQTT backend's disconnect callback (the one ESPHome
+   uses to set `state_ = MQTT_CLIENT_DISCONNECTED`), and
+2. Adding the new callback to a `CallbackManager`.
+
+If the component calls `set_on_disconnect`, ESPHome's own state-tracking
+callback is lost. Consequence: when MQTT drops, `state_` never transitions
+to `MQTT_CLIENT_DISCONNECTED`, so the MQTT component's `loop()` never
+re-enters the reconnection branch. MQTT stays dead until a reboot.
+
+### Fix — poll `is_connected()` in `loop()`
+
+Instead of hooking into `set_on_disconnect`, the component now tracks
+connection state via a simple bool (`mqtt_was_connected_`) and checks
+`mqtt::global_mqtt_client->is_connected()` every loop iteration. When
+the transition from connected → disconnected is detected, the bridge is
+notified — matching the reference behaviour where `notifyMqttDisconnected()`
+is called after reconnection in `connectToMqtt()`.
+
+---
+
+## 11. MQTT topic and retained-flag alignment with reference
+
+The reference publishes ERD values as **retained** (`true`), uses the topic
+suffix `write_result` (with underscore), and uses descriptive failure
+strings (`"retries exhausted"`, `"not supported"`, etc.).
+
+The original port used non-retained publishes, `writeResult` (camelCase),
+and a numeric `FAILED:<n>` payload. These were corrected to match the
+reference exactly.
+
+---
+
+## 12. UART poll pattern alignment with reference
+
+The reference's `poll()` captures the available byte count once:
+
+```cpp
+int rxBytes = self->uart->available();
+while(rxBytes--) { … }
+```
+
+The original port used `while(self->uart->available())` which re-checks
+on every iteration. While functionally equivalent in most cases, the
+reference pattern prevents edge cases where bytes arriving during event
+processing (e.g., reflected TX bytes on the GEA2 bus) could be read in
+the same poll cycle. The code now matches the reference exactly.
+
+---
+
+## 13. Summary of all changed / new files
 
 | File | Change |
 |------|--------|
 | `__init__.py` | Replace `home-assistant-bridge` PlatformIO ref with two GitHub URLs |
-| `geappliances_bridge.h` | Remove Arduino stream types; add ESPHome adapters; define named constants for buffer sizes (`kSendQueueBufferSize = 10000`, `kClientQueueBufferSize = 8096`) |
-| `geappliances_bridge.cpp` | Use `esphome_uart_adapter_init` (pass `this->parent_`) + `esphome_time_source_init`; remove Arduino-specific UART stream setup |
+| `geappliances_bridge.h` | Remove Arduino stream types; add ESPHome adapters; define named constants for buffer sizes (`kSendQueueBufferSize = 10000`, `kClientQueueBufferSize = 8096`); add `mqtt_was_connected_` for connection tracking |
+| `geappliances_bridge.cpp` | Use `esphome_uart_adapter_init` (pass `this->parent_`) + `esphome_time_source_init`; remove Arduino-specific UART stream setup; track MQTT state in `loop()` instead of `set_on_disconnect` |
 | `Gea2MqttBridge.cpp` | Remove `Arduino.h`, `Preferences.h`, `String`, `Serial`, NV storage; replace with `ESP_LOGI`, `snprintf`, `esp_system.h`; add bounds check on `erd_polling_list` write |
 | `esphome_mqtt_client_adapter.h` | Add `extern "C"` guards; use `typedef struct … _t` naming |
-| `esphome_mqtt_client_adapter.cpp` | Fix vtable / struct designated-initializer field order; resolve ambiguous `publish()` overload; widen hex-encode loop variable to `uint16_t` |
+| `esphome_mqtt_client_adapter.cpp` | Fix vtable / struct designated-initializer field order; resolve ambiguous `publish()` overload; widen hex-encode loop variable to `uint16_t`; match reference MQTT topic names and retained flags |
 | `i_mqtt_client.h` *(vendored)* | Pure-C interface header copied from `geappliances/home-assistant-bridge` to avoid pulling in Arduino-only source files |
 | `esphome_uart_adapter.h` *(new)* | Polling-based `i_tiny_uart_t` adapter for `uart::UARTComponent`; removed redundant `extern "C"` guards (function uses C++ types) |
-| `esphome_uart_adapter.cpp` *(new)* | Implementation; **poll period changed 1→0** to match reference and prevent inter-byte gap misfire at 19200 baud |
+| `esphome_uart_adapter.cpp` *(new)* | Implementation; **poll period changed 1→0** to match reference and prevent inter-byte gap misfire at 19200 baud; capture available count once matching reference pattern |
 | `esphome_time_source.h` *(new)* | `i_tiny_time_source_t` adapter header |
 | `esphome_time_source.cpp` *(new)* | Implementation wrapping `esphome::millis()` |
 | `ApplianceErds.cpp` | Add `static` to `smallApplianceErdCount` and `energyErds` to prevent external linkage conflicts |

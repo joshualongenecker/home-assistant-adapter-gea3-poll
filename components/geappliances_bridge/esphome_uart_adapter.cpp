@@ -16,9 +16,18 @@ static void poll(void *context)
 {
   auto self = static_cast<esphome_uart_adapter_t *>(context);
 
-  while(self->uart->available()) {
+  // Capture the available count once, matching the reference implementation
+  // (geappliances/home-assistant-bridge tiny_uart_adapter.cpp). This ensures
+  // we only process the bytes that were available when the poll started and
+  // avoids reading any bytes that arrive during event processing (e.g.,
+  // reflected TX bytes from the GEA2 bus during send_next_byte callbacks).
+  int rx_bytes = self->uart->available();
+
+  while(rx_bytes--) {
     uint8_t byte;
-    self->uart->read_byte(&byte);
+    if(!self->uart->read_byte(&byte)) {
+      break;
+    }
     tiny_uart_on_receive_args_t args = {byte};
     tiny_event_publish(&self->receive_event, &args);
   }

@@ -31,12 +31,10 @@ void GEAppliancesBridgeComponent::setup()
   ESP_LOGI(TAG, "MQTT client adapter init");
   esphome_mqtt_client_adapter_init(&mqtt_client_adapter_, device_id_);
 
-  // Notify the bridge when MQTT reconnects so it clears its ERD registry and
-  // resubscribes to the appliance, matching the Arduino library's behavior.
-  mqtt::global_mqtt_client->set_on_disconnect(
-    [this](mqtt::MQTTClientDisconnectReason) {
-      esphome_mqtt_client_adapter_notify_disconnected(&this->mqtt_client_adapter_);
-    });
+  // MQTT disconnect/reconnect handling is done in loop() by tracking
+  // connection state, rather than using set_on_disconnect() which replaces
+  // ESPHome's internal backend callback and breaks MQTT state tracking
+  // and automatic reconnection.
 
   // The GEA2 interface needs a periodic 1 ms interrupt to drive its internal
   // timers (used for inter-byte gap detection, collision avoidance, etc.).
@@ -87,6 +85,19 @@ void GEAppliancesBridgeComponent::setup()
 
 void GEAppliancesBridgeComponent::loop()
 {
+  // Track MQTT connection state transitions. When MQTT reconnects after a
+  // disconnect, notify the bridge so it clears its ERD registry and
+  // resubscribes. This matches the reference (connectToMqtt calls
+  // notifyMqttDisconnected after reconnection). Using set_on_disconnect()
+  // would replace ESPHome's internal backend callback, breaking MQTT state
+  // tracking and reconnection.
+  bool mqtt_connected = mqtt::global_mqtt_client->is_connected();
+  if(mqtt_was_connected_ && !mqtt_connected) {
+    ESP_LOGW(TAG, "MQTT disconnected");
+    esphome_mqtt_client_adapter_notify_disconnected(&mqtt_client_adapter_);
+  }
+  mqtt_was_connected_ = mqtt_connected;
+
   tiny_timer_group_run(&timer_group_);
   tiny_gea2_interface_run(&gea2_interface_);
 }

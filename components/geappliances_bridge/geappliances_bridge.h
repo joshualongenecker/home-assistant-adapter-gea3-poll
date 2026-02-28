@@ -74,6 +74,12 @@ class GEAppliancesBridgeComponent : public Component, public uart::UARTDevice {
   uint8_t client_queue_buffer_[kClientQueueBufferSize];
 
   Gea2MqttBridge_t gea2_mqtt_bridge_;
+
+  // Track MQTT connection state to detect reconnection without breaking
+  // ESPHome's internal MQTT state (set_on_disconnect replaces the backend
+  // callback). Matches the reference behavior: notify bridge on reconnect
+  // so it re-registers ERDs.
+  bool mqtt_was_connected_{false};
 };
 
 }  // namespace geappliances_bridge
