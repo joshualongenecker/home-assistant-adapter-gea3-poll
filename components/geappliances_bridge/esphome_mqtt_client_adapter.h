@@ -5,10 +5,10 @@
  * Bridges the GEA2 bridge's i_mqtt_client_t interface to ESPHome's
  * built-in MQTT client (mqtt::global_mqtt_client).
  *
- * Topics used (matching the home-assistant-bridge library conventions):
- *   ERD value publish:  geappliances/{device_id}/erd/0x{erd:04x}/value
- *   ERD write subscribe: geappliances/{device_id}/erd/0x{erd:04x}/write
- *   Sub-topic publish:  geappliances/{device_id}/{subtopic}
+ * Topics used (matching home-assistant-bridge library conventions):
+ *   ERD value publish:   geappliances/{device_id}/erd/0x{erd}/value
+ *   ERD write subscribe: geappliances/{device_id}/erd/0x{erd}/write
+ *   Sub-topic publish:   geappliances/{device_id}/{subtopic}
  */
 
 #pragma once
@@ -26,18 +26,22 @@ extern "C" {
  * Implements i_mqtt_client_t using ESPHome's global_mqtt_client.
  * The interface field MUST be first for C-style upcasting to work.
  */
-struct EspHomeMqttClientAdapter {
+typedef struct {
   i_mqtt_client_t interface;
   std::string device_id;
   tiny_event_t on_write_request_event;
   tiny_event_t on_mqtt_disconnect_event;
-};
+} EspHomeMqttClientAdapter;
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 /*!
  * @brief Initialize the ESPHome MQTT client adapter.
  *
- * @param self The adapter instance to initialize.
- * @param device_id The device identifier used to construct MQTT topics.
+ * @param self      Adapter instance to initialize.
+ * @param device_id Device identifier used to construct MQTT topics.
  */
 void esphome_mqtt_client_adapter_init(EspHomeMqttClientAdapter *self, const char *device_id);
 
@@ -47,3 +51,7 @@ void esphome_mqtt_client_adapter_init(EspHomeMqttClientAdapter *self, const char
  * Fires the on_mqtt_disconnect event so the GEA2 bridge can react.
  */
 void esphome_mqtt_client_adapter_notify_disconnected(EspHomeMqttClientAdapter *self);
+
+#ifdef __cplusplus
+}
+#endif

@@ -42,4 +42,8 @@ async def to_code(config):
 
     cg.add(var.set_device_id(config[CONF_DEVICE_ID]))
 
-    cg.add_library("geappliances/home-assistant-bridge", "^1.3.0")
+    # Use direct GitHub URLs (the same sources the reference ESPHome integration
+    # uses) so PlatformIO can resolve and download the libraries regardless of
+    # whether the geappliances org is accessible via the PlatformIO registry.
+    cg.add_library("https://github.com/ryanplusplus/tiny.git", None)
+    cg.add_library("https://github.com/geappliances/tiny-gea-api.git#develop", None)

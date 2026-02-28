@@ -13,9 +13,9 @@
 #include "esphome/core/log.h"
 #include "esphome/components/uart/uart.h"
 
-#include <Stream.h>
-
-#include "tiny_uart_adapter.hpp"
+#include "esphome_uart_adapter.h"
+#include "esphome_time_source.h"
+#include "esphome_mqtt_client_adapter.h"
 
 extern "C" {
 #include "tiny_gea2_erd_client.h"
@@ -25,43 +25,8 @@ extern "C" {
 #include "Gea2MqttBridge.h"
 }
 
-#include "esphome_mqtt_client_adapter.h"
-
 namespace esphome {
 namespace geappliances_bridge {
-
-/*!
- * @brief Thin Arduino Stream wrapper around ESPHome's UARTDevice.
- *
- * The GEA2 library expects an Arduino Stream interface for UART communication.
- * This class adapts ESPHome's uart::UARTDevice to that interface.
- */
-class ESPHomeUARTStream : public Stream {
- public:
-  void set_device(uart::UARTDevice *device) { device_ = device; }
-
-  int available() override { return device_->available(); }
-
-  int read() override {
-    uint8_t data;
-    if(device_->read_byte(&data)) {
-      return static_cast<int>(data);
-    }
-    return -1;
-  }
-
-  int peek() override { return -1; }
-
-  size_t write(uint8_t data) override {
-    device_->write_byte(data);
-    return 1;
-  }
-
-  void flush() override { device_->flush(); }
-
- private:
-  uart::UARTDevice *device_{nullptr};
-};
 
 /*!
  * @brief ESPHome component that bridges GEA2 appliances to MQTT.
@@ -71,7 +36,9 @@ class ESPHomeUARTStream : public Stream {
  * - Discovers supported ERDs by polling the appliance
  * - Publishes ERD values to MQTT under geappliances/{device_id}/erd/{erd_id}/value
  * - Accepts ERD write commands from MQTT
- * - Persists the discovered ERD list to NV storage for faster startup
+ *
+ * The component extends uart::UARTDevice so ESPHome wires the configured UART
+ * automatically via set_uart_parent() from the generated main.cpp.
  */
 class GEAppliancesBridgeComponent : public Component, public uart::UARTDevice {
  public:
@@ -85,14 +52,12 @@ class GEAppliancesBridgeComponent : public Component, public uart::UARTDevice {
  private:
   const char *device_id_{"ge_appliance"};
 
-  ESPHomeUARTStream uart_stream_;
-
   tiny_timer_group_t timer_group_;
 
-  tiny_event_t fake_msec_interrupt_;
-  tiny_timer_t fake_msec_timer_;
+  tiny_event_t msec_interrupt_;
+  tiny_timer_t msec_timer_;
 
-  tiny_uart_adapter_t uart_adapter_;
+  esphome_uart_adapter_t uart_adapter_;
   EspHomeMqttClientAdapter mqtt_client_adapter_;
 
   tiny_gea2_interface_t gea2_interface_;

@@ -8,10 +8,6 @@
 #include "esphome/components/mqtt/mqtt_client.h"
 #include "esphome/core/log.h"
 
-extern "C" {
-#include "tiny_time_source.h"
-}
-
 static const char *const TAG = "geappliances_bridge";
 
 static const tiny_gea2_erd_client_configuration_t client_configuration = {
@@ -26,37 +22,43 @@ void GEAppliancesBridgeComponent::setup()
 {
   ESP_LOGI(TAG, "GEA2 bridge startup");
 
-  uart_stream_.set_device(this);
-
   ESP_LOGI(TAG, "Timer group startup");
-  tiny_timer_group_init(&timer_group_, tiny_time_source_init());
+  tiny_timer_group_init(&timer_group_, esphome_time_source_init());
+
+  ESP_LOGI(TAG, "UART adapter startup");
+  esphome_uart_adapter_init(&uart_adapter_, &timer_group_, this);
 
   ESP_LOGI(TAG, "MQTT client adapter init");
   esphome_mqtt_client_adapter_init(&mqtt_client_adapter_, device_id_);
 
-  // Register MQTT disconnect callback to notify the bridge
+  // Notify the bridge when MQTT reconnects so it clears its ERD registry and
+  // resubscribes to the appliance, matching the Arduino library's behavior.
   mqtt::global_mqtt_client->set_on_disconnect(
     [this](mqtt::MQTTClientDisconnectReason) {
       esphome_mqtt_client_adapter_notify_disconnected(&this->mqtt_client_adapter_);
     });
 
-  ESP_LOGI(TAG, "Fake msec interrupt init");
-  tiny_event_init(&fake_msec_interrupt_);
+  // The GEA2 interface needs a periodic 1 ms interrupt to drive its internal
+  // timers (used for inter-byte gap detection, collision avoidance, etc.).
+  ESP_LOGI(TAG, "Msec interrupt init");
+  tiny_event_init(&msec_interrupt_);
   tiny_timer_start_periodic(
-    &timer_group_, &fake_msec_timer_, 1, &fake_msec_interrupt_, +[](void *context) {
+    &timer_group_, &msec_timer_, 1, &msec_interrupt_, +[](void *context) {
       tiny_event_publish(reinterpret_cast<tiny_event_t *>(context), nullptr);
     });
 
-  ESP_LOGI(TAG, "UART adapter startup");
-  tiny_uart_adapter_init(&uart_adapter_, &timer_group_, uart_stream_);
-
   ESP_LOGI(TAG, "GEA2 interface startup");
+  // GEA2 client address: 0xE4 is the conventional address for a Home Assistant
+  // bridge / adapter device on the GEA2 bus (used by PaulGoodJohn's reference
+  // adapter and the GE FirstBuild community adapter hardware).
+  static constexpr uint8_t kClientAddress = 0xE4;
+
   tiny_gea2_interface_init(
     &gea2_interface_,
     &uart_adapter_.interface,
-    tiny_time_source_init(),
-    &fake_msec_interrupt_.interface,
-    0xE4,
+    esphome_time_source_init(),
+    &msec_interrupt_.interface,
+    kClientAddress,
     send_queue_buffer_,
     sizeof(send_queue_buffer_),
     receive_buffer_,

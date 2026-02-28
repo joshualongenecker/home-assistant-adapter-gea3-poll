@@ -10,6 +10,7 @@
 #include "esphome/components/mqtt/mqtt_client.h"
 #include "esphome/core/log.h"
 
+#include <cctype>
 #include <cstdio>
 #include <string>
 #include <vector>
@@ -146,7 +147,7 @@ static i_tiny_event_t *_on_mqtt_disconnect(i_mqtt_client_t *self)
   return &adapter->on_mqtt_disconnect_event.interface;
 }
 
-void esphome_mqtt_client_adapter_init(EspHomeMqttClientAdapter *self, const char *device_id)
+extern "C" void esphome_mqtt_client_adapter_init(EspHomeMqttClientAdapter *self, const char *device_id)
 {
   self->interface.api = &mqtt_client_api;
   self->device_id = device_id;
@@ -154,7 +155,7 @@ void esphome_mqtt_client_adapter_init(EspHomeMqttClientAdapter *self, const char
   tiny_event_init(&self->on_mqtt_disconnect_event);
 }
 
-void esphome_mqtt_client_adapter_notify_disconnected(EspHomeMqttClientAdapter *self)
+extern "C" void esphome_mqtt_client_adapter_notify_disconnected(EspHomeMqttClientAdapter *self)
 {
   tiny_event_publish(&self->on_mqtt_disconnect_event, nullptr);
 }
