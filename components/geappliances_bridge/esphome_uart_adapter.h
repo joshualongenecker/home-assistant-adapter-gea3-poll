@@ -29,15 +29,7 @@ typedef struct {
   bool sent;
 } esphome_uart_adapter_t;
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 void esphome_uart_adapter_init(
   esphome_uart_adapter_t *self,
   tiny_timer_group_t *timer_group,
   esphome::uart::UARTComponent *uart);
-
-#ifdef __cplusplus
-}
-#endif

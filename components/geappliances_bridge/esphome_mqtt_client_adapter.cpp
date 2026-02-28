@@ -108,7 +108,7 @@ static void _update_erd(i_mqtt_client_t *self, tiny_erd_t erd, const void *data,
   std::string payload;
   payload.reserve(size * 2);
   const uint8_t *bytes = reinterpret_cast<const uint8_t *>(data);
-  for(uint8_t i = 0; i < size; i++) {
+  for(uint16_t i = 0; i < size; i++) {
     char hex_byte[3];
     snprintf(hex_byte, sizeof(hex_byte), "%02x", bytes[i]);
     payload += hex_byte;

@@ -212,10 +212,15 @@ static void AddErdToPollingList(self_t *self, tiny_erd_t erd)
     mqtt_client_register_erd(self->mqtt_client, erd);
     erd_set(self).insert(erd);
   }
-  self->erd_polling_list[self->pollingListCount] = erd;
-  self->pollingListCount++;
 
-  ESP_LOGD(TAG, "#%u Add ERD 0x%04X to polling list", (unsigned)self->pollingListCount, (unsigned)erd);
+  if(self->pollingListCount < POLLING_LIST_MAX_SIZE) {
+    self->erd_polling_list[self->pollingListCount] = erd;
+    self->pollingListCount++;
+    ESP_LOGD(TAG, "#%u Add ERD 0x%04X to polling list", (unsigned)self->pollingListCount, (unsigned)erd);
+  }
+  else {
+    ESP_LOGW(TAG, "Polling list full (%u entries). Cannot add ERD 0x%04X", (unsigned)self->pollingListCount, (unsigned)erd);
+  }
 }
 
 static tiny_hsm_result_t State_AddCommonErds(tiny_hsm_t *hsm, tiny_hsm_signal_t signal, const void *data)

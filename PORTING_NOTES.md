@@ -93,9 +93,30 @@ void esphome_uart_adapter_init(
   esphome::uart::UARTComponent  *uart);
 ```
 
-The `poll` callback fires on every timer tick, drains all bytes from
-`uart->read_byte()` into `receive_event`, and fires `send_complete_event`
-after each transmitted byte — exactly what `i_tiny_uart_t` requires.
+The `poll` callback drains all bytes from `uart->read_byte()` into
+`receive_event`, and fires `send_complete_event` after each transmitted byte.
+
+### Critical: poll period must be 0 (fire every loop)
+
+The reference implementation (`geappliances/home-assistant-bridge`,
+`tiny_uart_adapter.cpp`) uses **period = 0**:
+
+```cpp
+// Reference — fires on every call to tiny_timer_group_run()
+tiny_timer_start_periodic(timer_group, &self->timer, 0, self, poll);
+```
+
+**Setting period = 1 breaks response parsing.** At 19200 baud a byte arrives
+every ~0.52 ms. With a 1 ms poll interval, the GEA2 interface's inter-byte gap
+timer fires between polls and treats the mid-packet pause as an end-of-frame,
+silently discarding the partial (or complete) response. The result is that the
+appliance identification read (ERD 0x0008) always times out and retries — the
+bridge never advances past `State_IdentifyAppliance`.
+
+```cpp
+// Correct — period 0: poll on every loop() iteration
+tiny_timer_start_periodic(timer_group, &self->timer, 0, self, poll);
+```
 
 Usage in the component:
 
@@ -342,15 +363,15 @@ geappliances_bridge:
 | File | Change |
 |------|--------|
 | `__init__.py` | Replace `home-assistant-bridge` PlatformIO ref with two GitHub URLs |
-| `geappliances_bridge.h` | Remove `ESPHomeUARTStream`, `<Stream.h>`, `tiny_uart_adapter.hpp`; add `esphome_uart_adapter.h`, `esphome_time_source.h` |
+| `geappliances_bridge.h` | Remove Arduino stream types; add ESPHome adapters; define named constants for buffer sizes (`kSendQueueBufferSize = 10000`, `kClientQueueBufferSize = 8096`) |
 | `geappliances_bridge.cpp` | Use `esphome_uart_adapter_init` (pass `this->parent_`) + `esphome_time_source_init`; remove Arduino-specific UART stream setup |
-| `Gea2MqttBridge.cpp` | Remove `Arduino.h`, `Preferences.h`, `String`, `Serial`, NV storage; replace with `ESP_LOGI`, `snprintf`, `esp_system.h` |
+| `Gea2MqttBridge.cpp` | Remove `Arduino.h`, `Preferences.h`, `String`, `Serial`, NV storage; replace with `ESP_LOGI`, `snprintf`, `esp_system.h`; add bounds check on `erd_polling_list` write |
 | `esphome_mqtt_client_adapter.h` | Add `extern "C"` guards; use `typedef struct … _t` naming |
-| `esphome_mqtt_client_adapter.cpp` | Fix vtable / struct designated-initializer field order; resolve ambiguous `publish()` overload; add `<cctype>` include; mark init/notify functions `extern "C"` |
+| `esphome_mqtt_client_adapter.cpp` | Fix vtable / struct designated-initializer field order; resolve ambiguous `publish()` overload; widen hex-encode loop variable to `uint16_t` |
 | `i_mqtt_client.h` *(vendored)* | Pure-C interface header copied from `geappliances/home-assistant-bridge` to avoid pulling in Arduino-only source files |
-| `esphome_uart_adapter.h` *(new)* | Polling-based `i_tiny_uart_t` adapter for `uart::UARTComponent` |
-| `esphome_uart_adapter.cpp` *(new)* | Implementation of the polling UART adapter |
+| `esphome_uart_adapter.h` *(new)* | Polling-based `i_tiny_uart_t` adapter for `uart::UARTComponent`; removed redundant `extern "C"` guards (function uses C++ types) |
+| `esphome_uart_adapter.cpp` *(new)* | Implementation; **poll period changed 1→0** to match reference and prevent inter-byte gap misfire at 19200 baud |
 | `esphome_time_source.h` *(new)* | `i_tiny_time_source_t` adapter header |
 | `esphome_time_source.cpp` *(new)* | Implementation wrapping `esphome::millis()` |
-| `ApplianceErds.h/.cpp` | Unchanged — pure C/C++, no Arduino dependencies |
+| `ApplianceErds.cpp` | Add `static` to `smallApplianceErdCount` and `energyErds` to prevent external linkage conflicts |
 | `Gea2MqttBridge.h` | Unchanged — already a pure C-compatible header |

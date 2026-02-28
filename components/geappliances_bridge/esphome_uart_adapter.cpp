@@ -63,8 +63,11 @@ extern "C" void esphome_uart_adapter_init(
   tiny_event_init(&self->send_complete_event);
   tiny_event_init(&self->receive_event);
 
-  // Poll UART every 1 ms — matches the GEA2 msec interrupt period and avoids
-  // consuming excessive CPU on the event loop while still draining bytes fast
-  // enough for the 19200 baud GEA2 bus (~1 byte per 0.5 ms).
-  tiny_timer_start_periodic(timer_group, &self->timer, 1, self, poll);
+  // Period 0: poll the UART on every call to tiny_timer_group_run() (every
+  // loop() iteration). At 19200 baud a byte arrives every ~0.52 ms; with a
+  // 1 ms period the GEA2 interface's inter-byte gap timer misfires and
+  // discards valid responses before they are fully received. Matching the
+  // reference implementation (geappliances/home-assistant-bridge
+  // tiny_uart_adapter.cpp, period = 0).
+  tiny_timer_start_periodic(timer_group, &self->timer, 0, self, poll);
 }

@@ -2342,9 +2342,9 @@ static const tiny_erd_t smallApplianceErds[] = {
   0x9500,
   0x9501
 };
-const uint16_t smallApplianceErdCount = sizeof(smallApplianceErds) / sizeof(smallApplianceErds[0]);
+static const uint16_t smallApplianceErdCount = sizeof(smallApplianceErds) / sizeof(smallApplianceErds[0]);
 
-const tiny_erd_t energyErds[] = {
+static const tiny_erd_t energyErds[] = {
   0xd001,
   0xd002,
   0xd003,

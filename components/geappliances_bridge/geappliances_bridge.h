@@ -60,12 +60,18 @@ class GEAppliancesBridgeComponent : public Component, public uart::UARTDevice {
   esphome_uart_adapter_t uart_adapter_;
   EspHomeMqttClientAdapter mqtt_client_adapter_;
 
+  // Buffer sizes match the reference implementation (geappliances/home-assistant-bridge).
+  // send_queue_buffer is large to accommodate burst GEA2 write traffic.
+  // client_queue_buffer intentionally uses 8096 (not 8192) matching the reference.
+  static constexpr size_t kSendQueueBufferSize = 10000;
+  static constexpr size_t kClientQueueBufferSize = 8096;
+
   tiny_gea2_interface_t gea2_interface_;
   uint8_t receive_buffer_[255];
-  uint8_t send_queue_buffer_[10000];
+  uint8_t send_queue_buffer_[kSendQueueBufferSize];
 
   tiny_gea2_erd_client_t erd_client_;
-  uint8_t client_queue_buffer_[8096];
+  uint8_t client_queue_buffer_[kClientQueueBufferSize];
 
   Gea2MqttBridge_t gea2_mqtt_bridge_;
 };
