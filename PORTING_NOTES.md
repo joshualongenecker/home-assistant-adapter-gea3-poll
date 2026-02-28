@@ -101,10 +101,12 @@ Usage in the component:
 
 ```cpp
 // geappliances_bridge.cpp
-esphome_uart_adapter_init(&uart_adapter_, &timer_group_, this);
-//                                                         ^
-//  'this' IS a uart::UARTComponent (GEAppliancesBridgeComponent
-//  extends uart::UARTDevice which delegates to UARTComponent)
+esphome_uart_adapter_init(&uart_adapter_, &timer_group_, this->parent_);
+//                                                              ^
+//  GEAppliancesBridgeComponent extends uart::UARTDevice, which stores
+//  the wired-up UARTComponent* as the protected member 'parent_'.
+//  Passing 'this' would be a type error (GEAppliancesBridgeComponent*
+//  is not implicitly convertible to UARTComponent*).
 ```
 
 ---
@@ -194,7 +196,92 @@ impact is minimal.
 
 ---
 
-## 6. ESPHome component Python layer (`__init__.py`)
+## 6. Vendored `i_mqtt_client.h`
+
+`i_mqtt_client.h` lives in `geappliances/home-assistant-bridge`, not in
+`geappliances/tiny-gea-api`.  Adding the full `home-assistant-bridge`
+library would pull in Arduino-only source files (`mqtt_client_adapter.cpp`,
+`tiny_uart_adapter.cpp`, etc.) that conflict with the ESP-IDF build.
+
+Instead, the single pure-C interface header was copied directly into the
+component directory as `components/geappliances_bridge/i_mqtt_client.h`.
+This is the only file needed from that library; no Arduino-only `.cpp`
+files are compiled.
+
+---
+
+## 7. C++ designated-initializer field ordering
+
+C++ (unlike C99) requires designated initializers to appear **in the same
+order as the struct field declarations**.  Two structs were initialised
+out of order and caused compiler errors:
+
+### `i_mqtt_client_api_t` vtable
+
+```cpp
+// Wrong order (caused: "designator order for field … does not match
+//   declaration order")
+static const i_mqtt_client_api_t mqtt_client_api = {
+  .publish_sub_topic = _publish_sub_topic,   // ← declared 4th
+  .register_erd      = _register_erd,        // ← declared 1st
+  …
+};
+
+// Correct order — matches struct declaration in i_mqtt_client.h
+static const i_mqtt_client_api_t mqtt_client_api = {
+  .register_erd           = _register_erd,
+  .update_erd             = _update_erd,
+  .update_erd_write_result = _update_erd_write_result,
+  .publish_sub_topic      = _publish_sub_topic,
+  .on_write_request       = _on_write_request,
+  .on_mqtt_disconnect     = _on_mqtt_disconnect,
+};
+```
+
+### `mqtt_client_on_write_request_args_t`
+
+```cpp
+// Wrong order (.value before .size; declaration order is erd, size, value)
+mqtt_client_on_write_request_args_t args = {
+  .erd   = captured_erd,
+  .value = bytes.data(),       // ← declared 3rd
+  .size  = …,                  // ← declared 2nd
+};
+
+// Correct order
+mqtt_client_on_write_request_args_t args = {
+  .erd   = captured_erd,
+  .size  = static_cast<uint8_t>(bytes.size()),
+  .value = bytes.data(),
+};
+```
+
+### Ambiguous `publish()` overload
+
+`esphome::mqtt::MQTTClientComponent::publish` has two overloads that
+accept `(std::string, X, uint8_t, bool)`:
+
+```cpp
+bool publish(const std::string &topic, const std::string &payload, uint8_t qos, bool retain);
+bool publish(const std::string &topic, const char *payload, size_t payload_length, uint8_t qos, bool retain);
+```
+
+Passing a bare `const char *` with integer `0` and `false` is ambiguous
+because `0` could be `size_t payload_length` **or** `uint8_t qos`.
+The fix is to cast the payload to `std::string` so the first overload is
+selected unambiguously:
+
+```cpp
+// Before (warning: ambiguous)
+global_mqtt_client->publish(topic, payload, 0, false);
+
+// After (unambiguous)
+global_mqtt_client->publish(topic, std::string(payload), 0, false);
+```
+
+---
+
+## 8. ESPHome component Python layer (`__init__.py`)
 
 The Python layer is responsible for:
 
@@ -211,7 +298,7 @@ both Arduino and ESP-IDF frameworks.
 
 ---
 
-## 7. Example YAML configuration
+## 9. Example YAML configuration
 
 ```yaml
 esphome:
@@ -250,16 +337,17 @@ geappliances_bridge:
 
 ---
 
-## 8. Summary of all changed / new files
+## 10. Summary of all changed / new files
 
 | File | Change |
 |------|--------|
 | `__init__.py` | Replace `home-assistant-bridge` PlatformIO ref with two GitHub URLs |
 | `geappliances_bridge.h` | Remove `ESPHomeUARTStream`, `<Stream.h>`, `tiny_uart_adapter.hpp`; add `esphome_uart_adapter.h`, `esphome_time_source.h` |
-| `geappliances_bridge.cpp` | Use `esphome_uart_adapter_init` + `esphome_time_source_init`; remove Arduino-specific UART stream setup |
+| `geappliances_bridge.cpp` | Use `esphome_uart_adapter_init` (pass `this->parent_`) + `esphome_time_source_init`; remove Arduino-specific UART stream setup |
 | `Gea2MqttBridge.cpp` | Remove `Arduino.h`, `Preferences.h`, `String`, `Serial`, NV storage; replace with `ESP_LOGI`, `snprintf`, `esp_system.h` |
 | `esphome_mqtt_client_adapter.h` | Add `extern "C"` guards; use `typedef struct … _t` naming |
-| `esphome_mqtt_client_adapter.cpp` | Add `<cctype>` include; mark init/notify functions `extern "C"` |
+| `esphome_mqtt_client_adapter.cpp` | Fix vtable / struct designated-initializer field order; resolve ambiguous `publish()` overload; add `<cctype>` include; mark init/notify functions `extern "C"` |
+| `i_mqtt_client.h` *(vendored)* | Pure-C interface header copied from `geappliances/home-assistant-bridge` to avoid pulling in Arduino-only source files |
 | `esphome_uart_adapter.h` *(new)* | Polling-based `i_tiny_uart_t` adapter for `uart::UARTComponent` |
 | `esphome_uart_adapter.cpp` *(new)* | Implementation of the polling UART adapter |
 | `esphome_time_source.h` *(new)* | `i_tiny_time_source_t` adapter header |
