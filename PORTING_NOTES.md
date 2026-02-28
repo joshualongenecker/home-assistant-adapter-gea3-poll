@@ -238,8 +238,9 @@ uart:
 
 external_components:
   - source:
-      type: local
-      path: components
+      type: git
+      url: https://github.com/joshualongenecker/home-assistant-adapter-gea3-poll
+      ref: copilot/create-esphome-gea2-polling-feature
     components: [geappliances_bridge]
 
 geappliances_bridge:
