@@ -1,0 +1,90 @@
+# Example ESPHome configuration for the GE Appliances GEA2 polling bridge.
+#
+# This configuration connects to a GE Appliances device via the GEA2 protocol,
+# polls all discoverable ERDs, and publishes their values to Home Assistant
+# via MQTT.
+#
+# Hardware: Xiao ESP32-C3 on the GE Home Assistant adapter carrier board
+# (https://firstbuild.com/inventions/home-assistant-adapter/)
+#
+# Based on PaulGoodJohn's GEA2 Polling Adapter:
+# https://github.com/paulgoodjohn/home-assistant-adapter
+
+esphome:
+  name: ge-appliance-bridge
+  friendly_name: GE Appliance Bridge
+  platformio_options:
+    build_flags:
+      - "-std=gnu++17"
+    build_unflags:
+      - "-std=gnu++11"
+
+esp32:
+  board: seeed_xiao_esp32c3
+  framework:
+    type: arduino
+
+# Enable logging
+logger:
+  level: INFO
+
+# WiFi connection
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  ap:
+    ssid: "GE-Appliance-Bridge"
+    password: "geappliance"
+
+captive_portal:
+
+# MQTT configuration for Home Assistant
+mqtt:
+  broker: !secret mqtt_broker
+  username: !secret mqtt_username
+  password: !secret mqtt_password
+  port: 1883
+  discovery: true
+  discovery_prefix: homeassistant
+
+# UART configuration for GEA2 communication
+# GEA2 uses 19200 baud on the older appliances
+uart:
+  - id: gea2_uart
+    tx_pin: GPIO9   # D9 on Xiao ESP32-C3
+    rx_pin: GPIO10  # D10 on Xiao ESP32-C3
+    baud_rate: 19200
+
+# GE Appliances Bridge component
+# This component discovers ERDs on the connected appliance, builds a poll list,
+# and continuously publishes ERD values to MQTT.
+#
+# MQTT topics published:
+#   geappliances/{device_id}/erd/0x{erd_id}/value  - ERD value as hex string
+#   geappliances/{device_id}/uptime                - Uptime in seconds
+#   geappliances/{device_id}/minHeap               - Minimum free heap
+#   geappliances/{device_id}/currentHeap           - Current free heap
+#   geappliances/{device_id}/lastErd               - Last successfully polled ERD
+#
+# MQTT topics subscribed:
+#   geappliances/{device_id}/erd/0x{erd_id}/write  - Write hex value to ERD
+#
+# The component uses a hierarchical state machine (HSM) with these states:
+#   1. IdentifyAppliance  - Reads ERD 0x0008 to identify the appliance type
+#   2. AddCommonErds      - Discovers which common ERDs the appliance supports
+#   3. AddEnergyErds      - Discovers which energy ERDs the appliance supports
+#   4. AddApplianceErds   - Discovers appliance-type-specific ERDs
+#   5. PollErdsFromList   - Continuously polls all discovered ERDs
+#
+# The discovered ERD polling list is persisted to NV storage so subsequent
+# startups skip the discovery phase and go straight to polling.
+
+external_components:
+  - source:
+      type: local
+      path: components
+    components: [geappliances_bridge]
+
+geappliances_bridge:
+  gea2_uart_id: gea2_uart
+  device_id: "my_ge_appliance"  # Unique identifier for this appliance
