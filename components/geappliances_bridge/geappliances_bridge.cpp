@@ -26,7 +26,7 @@ void GEAppliancesBridgeComponent::setup()
   tiny_timer_group_init(&timer_group_, esphome_time_source_init());
 
   ESP_LOGI(TAG, "UART adapter startup");
-  esphome_uart_adapter_init(&uart_adapter_, &timer_group_, this);
+  esphome_uart_adapter_init(&uart_adapter_, &timer_group_, this->parent_);
 
   ESP_LOGI(TAG, "MQTT client adapter init");
   esphome_mqtt_client_adapter_init(&mqtt_client_adapter_, device_id_);

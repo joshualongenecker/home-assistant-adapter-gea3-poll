@@ -26,10 +26,10 @@ static i_tiny_event_t *_on_write_request(i_mqtt_client_t *self);
 static i_tiny_event_t *_on_mqtt_disconnect(i_mqtt_client_t *self);
 
 static const i_mqtt_client_api_t mqtt_client_api = {
-  .publish_sub_topic = _publish_sub_topic,
   .register_erd = _register_erd,
   .update_erd = _update_erd,
   .update_erd_write_result = _update_erd_write_result,
+  .publish_sub_topic = _publish_sub_topic,
   .on_write_request = _on_write_request,
   .on_mqtt_disconnect = _on_mqtt_disconnect,
 };
@@ -55,7 +55,7 @@ static void _publish_sub_topic(i_mqtt_client_t *self, const char *sub_topic, con
 {
   auto adapter = adapter_from(self);
   std::string topic = build_topic(adapter->device_id, sub_topic);
-  esphome::mqtt::global_mqtt_client->publish(topic, payload, 0, false);
+  esphome::mqtt::global_mqtt_client->publish(topic, std::string(payload), 0, false);
 }
 
 static void _register_erd(i_mqtt_client_t *self, tiny_erd_t erd)
@@ -90,8 +90,8 @@ static void _register_erd(i_mqtt_client_t *self, tiny_erd_t erd)
 
       mqtt_client_on_write_request_args_t args = {
         .erd = captured_erd,
-        .value = bytes.data(),
         .size = static_cast<uint8_t>(bytes.size()),
+        .value = bytes.data(),
       };
 
       tiny_event_publish(&a->on_write_request_event, &args);
