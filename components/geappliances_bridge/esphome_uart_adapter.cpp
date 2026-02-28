@@ -7,10 +7,13 @@
  */
 
 #include "esphome_uart_adapter.h"
+#include "esphome/core/log.h"
 
 extern "C" {
 #include "tiny_utils.h"
 }
+
+static const char *const TAG = "gea2_uart";
 
 static void poll(void *context)
 {
@@ -23,17 +26,24 @@ static void poll(void *context)
   // reflected TX bytes from the GEA2 bus during send_next_byte callbacks).
   int rx_bytes = self->uart->available();
 
+  if(rx_bytes > 0) {
+    ESP_LOGV(TAG, "poll: %d byte(s) available", rx_bytes);
+  }
+
   while(rx_bytes--) {
     uint8_t byte;
     if(!self->uart->read_byte(&byte)) {
+      ESP_LOGV(TAG, "poll: read_byte failed with %d remaining", rx_bytes + 1);
       break;
     }
+    ESP_LOGV(TAG, "poll: RX 0x%02X", byte);
     tiny_uart_on_receive_args_t args = {byte};
     tiny_event_publish(&self->receive_event, &args);
   }
 
   if(self->sent) {
     self->sent = false;
+    ESP_LOGV(TAG, "poll: send_complete event");
     tiny_event_publish(&self->send_complete_event, nullptr);
   }
 }
@@ -42,6 +52,7 @@ static void send(i_tiny_uart_t *_self, uint8_t byte)
 {
   auto self = reinterpret_cast<esphome_uart_adapter_t *>(_self);
   self->sent = true;
+  ESP_LOGV(TAG, "send: TX 0x%02X", byte);
   self->uart->write_byte(byte);
 }
 
