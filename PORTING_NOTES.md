@@ -413,13 +413,54 @@ the same poll cycle. The code now matches the reference exactly.
 
 ---
 
-## 13. Summary of all changed / new files
+## 13. Tight-loop GEA2 frame transmission in `loop()`
+
+### The problem
+
+The GEA2 protocol sends frames one byte at a time through the event chain:
+`send(byte)` → `poll()` → `send_complete` → `send(next_byte)`. Each byte
+requires one full `tiny_timer_group_run()` cycle. In the original code,
+`loop()` called `tiny_timer_group_run()` once and returned — meaning each
+byte took one full ESPHome main-loop iteration.
+
+Arduino's `loop()` runs at >10,000 iterations/sec, so inter-byte gaps are
+<0.1 ms. ESPHome's main loop runs at ~20 Hz due to MQTT, WiFi, logger,
+and component overhead, creating **20–50 ms gaps between individual frame
+bytes**. The GEA2 protocol's inter-byte timeout is ~1–3 ms. The appliance
+sees partial frames, discards them, and never responds.
+
+Diagnostic UART traces confirmed the issue — logs showed 45–200 ms gaps
+between successive TX bytes of a single frame, with MQTT publish operations
+executing mid-frame.
+
+### Fix — tight-loop while the UART has pending sends
+
+```cpp
+static constexpr int kMaxTightLoopIterations = 512;
+int iterations = 0;
+do {
+  tiny_timer_group_run(&timer_group_);
+  tiny_gea2_interface_run(&gea2_interface_);
+} while(uart_adapter_.sent && ++iterations < kMaxTightLoopIterations);
+```
+
+When `uart_adapter_.sent` is `true`, a byte has been written to the UART TX
+buffer and the next poll/send_complete cycle is needed. The loop continues
+until the frame is fully transmitted (`sent` goes `false` when no more bytes
+are queued). A safety cap of 512 iterations prevents infinite blocking.
+
+This keeps the tight byte-by-byte chain running at wire speed (~0.5 ms per
+byte at 19200 baud) while returning control to ESPHome between frames.
+
+---
+
+## 14. Summary of all changed / new files
 
 | File | Change |
 |------|--------|
 | `__init__.py` | Replace `home-assistant-bridge` PlatformIO ref with two GitHub URLs |
 | `geappliances_bridge.h` | Remove Arduino stream types; add ESPHome adapters; define named constants for buffer sizes (`kSendQueueBufferSize = 10000`, `kClientQueueBufferSize = 8096`); add `mqtt_was_connected_` for connection tracking |
-| `geappliances_bridge.cpp` | Use `esphome_uart_adapter_init` (pass `this->parent_`) + `esphome_time_source_init`; remove Arduino-specific UART stream setup; track MQTT state in `loop()` instead of `set_on_disconnect` |
+| `geappliances_bridge.cpp` | Use `esphome_uart_adapter_init` (pass `this->parent_`) + `esphome_time_source_init`; remove Arduino-specific UART stream setup; track MQTT state in `loop()` instead of `set_on_disconnect`; tight-loop `tiny_timer_group_run` while UART has pending sends to achieve wire-speed frame transmission |
 | `Gea2MqttBridge.cpp` | Remove `Arduino.h`, `Preferences.h`, `String`, `Serial`, NV storage; replace with `ESP_LOGI`, `snprintf`, `esp_system.h`; add bounds check on `erd_polling_list` write |
 | `esphome_mqtt_client_adapter.h` | Add `extern "C"` guards; use `typedef struct … _t` naming |
 | `esphome_mqtt_client_adapter.cpp` | Fix vtable / struct designated-initializer field order; resolve ambiguous `publish()` overload; widen hex-encode loop variable to `uint16_t`; match reference MQTT topic names and retained flags |

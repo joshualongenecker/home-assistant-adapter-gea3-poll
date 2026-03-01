@@ -98,8 +98,24 @@ void GEAppliancesBridgeComponent::loop()
   }
   mqtt_was_connected_ = mqtt_connected;
 
-  tiny_timer_group_run(&timer_group_);
-  tiny_gea2_interface_run(&gea2_interface_);
+  // Run the GEA2 protocol stack in a tight loop while the UART adapter has
+  // a pending byte to send. The byte-by-byte send pattern (send → poll →
+  // send_complete → send next byte) means each byte requires one full
+  // timer_group_run cycle. In Arduino the main loop runs at >10 kHz so
+  // inter-byte gaps are <0.1 ms. ESPHome's main loop runs at ~20 Hz due
+  // to MQTT/WiFi/component overhead, creating 20-50 ms gaps between bytes
+  // that exceed the GEA2 protocol's inter-byte timeout (~1-3 ms). The
+  // appliance discards partial frames and never responds.
+  //
+  // The tight loop ensures entire GEA2 frames are transmitted at wire speed.
+  // It exits as soon as the frame is complete (sent == false) or after a
+  // safety limit to avoid blocking ESPHome indefinitely.
+  static constexpr int kMaxTightLoopIterations = 512;
+  int iterations = 0;
+  do {
+    tiny_timer_group_run(&timer_group_);
+    tiny_gea2_interface_run(&gea2_interface_);
+  } while(uart_adapter_.sent && ++iterations < kMaxTightLoopIterations);
 }
 
 }  // namespace geappliances_bridge
