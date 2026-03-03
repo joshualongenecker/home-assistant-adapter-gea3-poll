@@ -413,44 +413,75 @@ the same poll cycle. The code now matches the reference exactly.
 
 ---
 
-## 13. Tight-loop GEA2 frame transmission in `loop()`
+## 13. GEA2 frame transmission: reflection-based byte chaining and loop rate
 
-### The problem
+### How byte transmission actually works (reflection-based)
 
-The GEA2 protocol sends frames one byte at a time through the event chain:
-`send(byte)` → `poll()` → `send_complete` → `send(next_byte)`. Each byte
-requires one full `tiny_timer_group_run()` cycle. In the original code,
-`loop()` called `tiny_timer_group_run()` once and returned — meaning each
-byte took one full ESPHome main-loop iteration.
+The GEA2 physical layer is **half-duplex**: everything transmitted on the bus
+is echoed back to the sender. `tiny_gea2_interface.c` exploits this with a
+reflection-based byte chain in `state_send`:
 
-Arduino's `loop()` runs at >10,000 iterations/sec, so inter-byte gaps are
-<0.1 ms. ESPHome's main loop runs at ~20 Hz due to MQTT, WiFi, logger,
-and component overhead, creating **20–50 ms gaps between individual frame
-bytes**. The GEA2 protocol's inter-byte timeout is ~1–3 ms. The appliance
-sees partial frames, discards them, and never responds.
+1. `send_next_byte()` calls `tiny_uart_send(uart, byte)` → our `send()`
+   writes the byte to the UART TX FIFO and sets `sent = true`.
+2. The UART hardware transmits the byte over the wire (~0.52 ms at 19200 baud).
+3. The bus echoes the byte back; our `poll()` reads it and fires `receive_event`
+   → `byte_received()` → `signal_byte_received` in `state_send`.
+4. `state_send` calls `send_next_byte()` again for the **next** byte.
 
-Diagnostic UART traces confirmed the issue — logs showed 45–200 ms gaps
-between successive TX bytes of a single frame, with MQTT publish operations
-executing mid-frame.
+`send_complete_event` (fired by `poll()` when `sent=true`) is **not**
+subscribed to by the GEA2 interface. The byte chain is driven entirely
+by reflections.
 
-### Fix — tight-loop while the UART has pending sends
+The GEA2 interface also has a **`reflection_timeout` of 6 ms** (hardcoded
+in `tiny_gea2_interface.c`). If the reflected byte is not received within
+6 ms, the send is treated as a bus collision; the interface backs off and
+retries with exponential collision cooldown (43–95 ms).
+
+### Why `uart_adapter_.sent` was wrong
+
+An earlier version of `loop()` looped while `uart_adapter_.sent` was `true`:
 
 ```cpp
-static constexpr int kMaxTightLoopIterations = 512;
-int iterations = 0;
 do {
   tiny_timer_group_run(&timer_group_);
   tiny_gea2_interface_run(&gea2_interface_);
 } while(uart_adapter_.sent && ++iterations < kMaxTightLoopIterations);
 ```
 
-When `uart_adapter_.sent` is `true`, a byte has been written to the UART TX
-buffer and the next poll/send_complete cycle is needed. The loop continues
-until the frame is fully transmitted (`sent` goes `false` when no more bytes
-are queued). A safety cap of 512 iterations prevents infinite blocking.
+This exits after **two iterations at most** and provides no benefit:
 
-This keeps the tight byte-by-byte chain running at wire speed (~0.5 ms per
-byte at 19200 baud) while returning control to ESPHome between frames.
+- Iteration 1: a timer fires and calls `send_next_byte()` → `sent = true`.
+- Iteration 2: `poll()` fires → clears `sent`, fires `send_complete_event`
+  (nobody subscribes) → reads 0 RX bytes (reflection not yet arrived — the
+  byte is still being transmitted over the wire).
+- Loop exits because `sent = false`.
+
+The reflection only arrives ~0.52 ms after the byte is sent. The tight loop
+finishes in <0.1 ms (a handful of µs per iteration), so the loop exits
+before the reflection is even available. The next iteration of the byte chain
+must wait until the next `loop()` call — exactly the same situation as
+calling `tiny_timer_group_run()` once per `loop()`.
+
+### Fix — unconditional fixed-iteration loop
+
+```cpp
+static constexpr int kLoopIterations = 512;
+for(int i = 0; i < kLoopIterations; i++) {
+  tiny_timer_group_run(&timer_group_);
+  tiny_gea2_interface_run(&gea2_interface_);
+}
+```
+
+Running 512 iterations per `loop()` call ensures `poll()` fires repeatedly
+over a window of ~3–13 ms (depending on hardware speed). A byte sent in the
+first few iterations (when the 1 ms msec-interrupt timer fires) has its
+reflection arrive within iteration ~20–100, well within the 6 ms
+`reflection_timeout`. The entire byte chain for a GEA2 frame completes
+within a single `loop()` call.
+
+This matches the behaviour of the reference Arduino implementation
+(`paulgoodjohn/home-assistant-adapter`) which calls `tiny_timer_group_run()`
+once per Arduino `loop()` iteration at >10 kHz.
 
 ---
 

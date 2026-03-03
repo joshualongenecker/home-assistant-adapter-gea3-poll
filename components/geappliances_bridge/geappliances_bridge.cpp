@@ -98,24 +98,25 @@ void GEAppliancesBridgeComponent::loop()
   }
   mqtt_was_connected_ = mqtt_connected;
 
-  // Run the GEA2 protocol stack in a tight loop while the UART adapter has
-  // a pending byte to send. The byte-by-byte send pattern (send → poll →
-  // send_complete → send next byte) means each byte requires one full
-  // timer_group_run cycle. In Arduino the main loop runs at >10 kHz so
-  // inter-byte gaps are <0.1 ms. ESPHome's main loop runs at ~20 Hz due
-  // to MQTT/WiFi/component overhead, creating 20-50 ms gaps between bytes
-  // that exceed the GEA2 protocol's inter-byte timeout (~1-3 ms). The
-  // appliance discards partial frames and never responds.
+  // Run the GEA2 protocol stack for a fixed number of iterations per ESPHome
+  // loop() call. The GEA2 half-duplex bus uses reflection-based byte chaining:
+  // the interface sends a byte (tiny_uart_send), waits for its echo to arrive
+  // on the RX line, then sends the next byte (signal_byte_received →
+  // send_next_byte in state_send). The reflection_timeout in the GEA2
+  // interface (tiny_gea2_interface.c) is 6 ms; if the reflection is not
+  // received within 6 ms the send is treated as a collision.
   //
-  // The tight loop ensures entire GEA2 frames are transmitted at wire speed.
-  // It exits as soon as the frame is complete (sent == false) or after a
-  // safety limit to avoid blocking ESPHome indefinitely.
-  static constexpr int kMaxTightLoopIterations = 512;
-  int iterations = 0;
-  do {
+  // At 19200 baud a byte takes ~0.52 ms to transmit. poll() (period=0 timer)
+  // reads UART bytes and fires the receive_event on every tiny_timer_group_run()
+  // call. Running kLoopIterations iterations per loop() call ensures that poll()
+  // fires enough times to read each reflection well before the 6 ms timeout,
+  // matching the behaviour of the reference Arduino implementation
+  // (paulgoodjohn/home-assistant-adapter) which runs at >10 kHz.
+  static constexpr int kLoopIterations = 512;
+  for(int i = 0; i < kLoopIterations; i++) {
     tiny_timer_group_run(&timer_group_);
     tiny_gea2_interface_run(&gea2_interface_);
-  } while(uart_adapter_.sent && ++iterations < kMaxTightLoopIterations);
+  }
 }
 
 }  // namespace geappliances_bridge
