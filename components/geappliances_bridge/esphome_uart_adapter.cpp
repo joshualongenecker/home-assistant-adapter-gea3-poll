@@ -30,13 +30,14 @@ static void poll(void *context)
   if(rx_bytes > 0) {
     ESP_LOGV(TAG, "poll: %d byte(s) available", rx_bytes);
 
-    // Build a hex dump at DEBUG level so received bytes are visible without
-    // VERY_VERBOSE logging. Each byte formats as "XX " (3 chars).
+    // Build a hex dump for the batch log below.
+    // Each byte formats as "XX " (3 chars).
     // Buffer covers kMaxHexDumpBytes bytes (≥13, a full wire-level GEA2 frame).
     static constexpr int kMaxHexDumpBytes = 26;
     static constexpr int kHexByteFmtLen = 3;  // "XX " per byte
     char hex_str[kMaxHexDumpBytes * kHexByteFmtLen + 1];
     int hex_pos = 0;
+    int rx_bytes_total = rx_bytes;  // saved before while() decrements it
 
     while(rx_bytes--) {
       uint8_t byte;
@@ -59,7 +60,15 @@ static void poll(void *context)
     else {
       hex_str[0] = '\0';
     }
-    ESP_LOGV(TAG, "poll: RX [%s]", hex_str);
+    // Log at DEBUG when ≥ 4 bytes arrived (likely an appliance response frame,
+    // not a single TX reflection byte).  Single-byte TX reflections stay at
+    // VERBOSE so they don't add ~3 ms of serial overhead per byte during TX.
+    if(rx_bytes_total >= 4) {
+      ESP_LOGD(TAG, "poll: RX [%s]", hex_str);
+    }
+    else {
+      ESP_LOGV(TAG, "poll: RX [%s]", hex_str);
+    }
   }
 
   if(self->sent) {
