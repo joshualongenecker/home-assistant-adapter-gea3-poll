@@ -106,6 +106,41 @@ void GEAppliancesBridgeComponent::setup()
     sizeof(client_queue_buffer_),
     &client_configuration);
 
+  // Subscribe to raw GEA2 packet receive event for diagnostics.
+  // Logs every packet delivered by the interface layer (post CRC-validation)
+  // so we can verify whether appliance responses are reaching this layer.
+  tiny_event_subscription_init(
+    &gea2_receive_sub_, this, +[](void *context, const void *args) {
+      (void)context;
+      const auto *rx = reinterpret_cast<const tiny_gea_interface_on_receive_args_t *>(args);
+      const tiny_gea_packet_t *pkt = rx->packet;
+      uint8_t len = pkt->payload_length;
+      if(len == 0) {
+        ESP_LOGD(TAG, "GEA2 RX: src=0x%02X dst=0x%02X len=0",
+          (unsigned)pkt->source, (unsigned)pkt->destination);
+      } else if(len == 1) {
+        ESP_LOGD(TAG, "GEA2 RX: src=0x%02X dst=0x%02X len=%u payload=[0x%02X]",
+          (unsigned)pkt->source, (unsigned)pkt->destination, (unsigned)len,
+          (unsigned)pkt->payload[0]);
+      } else if(len == 2) {
+        ESP_LOGD(TAG, "GEA2 RX: src=0x%02X dst=0x%02X len=%u payload=[0x%02X 0x%02X]",
+          (unsigned)pkt->source, (unsigned)pkt->destination, (unsigned)len,
+          (unsigned)pkt->payload[0], (unsigned)pkt->payload[1]);
+      } else if(len == 3) {
+        ESP_LOGD(TAG, "GEA2 RX: src=0x%02X dst=0x%02X len=%u payload=[0x%02X 0x%02X 0x%02X]",
+          (unsigned)pkt->source, (unsigned)pkt->destination, (unsigned)len,
+          (unsigned)pkt->payload[0], (unsigned)pkt->payload[1], (unsigned)pkt->payload[2]);
+      } else {
+        ESP_LOGD(TAG, "GEA2 RX: src=0x%02X dst=0x%02X len=%u payload=[0x%02X 0x%02X 0x%02X 0x%02X ...]",
+          (unsigned)pkt->source, (unsigned)pkt->destination, (unsigned)len,
+          (unsigned)pkt->payload[0], (unsigned)pkt->payload[1],
+          (unsigned)pkt->payload[2], (unsigned)pkt->payload[3]);
+      }
+    });
+  tiny_event_subscribe(
+    tiny_gea_interface_on_receive(&gea2_interface_.interface),
+    &gea2_receive_sub_);
+
   ESP_LOGI(TAG, "GEA2 MQTT bridge init");
   gea2_mqtt_bridge_init(
     &gea2_mqtt_bridge_,

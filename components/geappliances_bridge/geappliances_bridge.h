@@ -22,6 +22,7 @@ extern "C" {
 #include "tiny_gea2_interface.h"
 #include "tiny_timer.h"
 #include "tiny_event.h"
+#include "i_tiny_gea_interface.h"
 #include "Gea2MqttBridge.h"
 }
 
@@ -80,6 +81,9 @@ class GEAppliancesBridgeComponent : public Component, public uart::UARTDevice {
   // callback). Matches the reference behavior: notify bridge on reconnect
   // so it re-registers ERDs.
   bool mqtt_was_connected_{false};
+
+  // Subscription for raw GEA2 packet receive logging (diagnostic).
+  tiny_event_subscription_t gea2_receive_sub_;
 };
 
 }  // namespace geappliances_bridge
