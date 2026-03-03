@@ -50,3 +50,7 @@ async def to_code(config):
     # and must be present so that file compiles, even though our adapter replaces it.
     cg.add_library("geappliances/home-assistant-bridge", "^1.3.0")
     cg.add_library("knolleary/PubSubClient", "^2.8")
+    # Preferences is a built-in ESP32 Arduino library used by Gea2MqttBridge.cpp.
+    # Declaring it explicitly ensures PlatformIO adds the library's include path
+    # even when the source is compiled inside ESPHome's external-component tree.
+    cg.add_library("Preferences", None)

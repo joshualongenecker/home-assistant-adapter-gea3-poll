@@ -72,13 +72,11 @@ mqtt:
   discovery: false
 
 # Pull the external component from GitHub.
-# Pin to a specific commit for reproducible builds; update the ref when you
-# pull in new changes from this repository.
 external_components:
   - source:
       type: git
       url: https://github.com/joshualongenecker/home-assistant-adapter-gea3-poll
-      ref: b6ed1fe7aa4e87c9871f7903e00db7e3a46ee743
+      ref: copilot/add-gea2-polling-feature
     components: [gea2_bridge]
 
 # GEA2 bridge component.

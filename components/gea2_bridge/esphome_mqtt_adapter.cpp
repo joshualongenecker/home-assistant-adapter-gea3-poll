@@ -147,7 +147,7 @@ static void update_erd_write_result(
     }
   }
 
-  esphome::mqtt::global_mqtt_client->publish(topic, result, 0 /* QoS */, true /* retain */);
+  esphome::mqtt::global_mqtt_client->publish(topic, std::string(result), 0 /* QoS */, true /* retain */);
 }
 
 static void publish_sub_topic(
@@ -160,7 +160,7 @@ static void publish_sub_topic(
   std::string topic =
     std::string("geappliances/") + self->device_id + "/" + sub_topic;
 
-  esphome::mqtt::global_mqtt_client->publish(topic, payload, 0 /* QoS */, false /* retain */);
+  esphome::mqtt::global_mqtt_client->publish(topic, std::string(payload), 0 /* QoS */, false /* retain */);
 }
 
 static i_tiny_event_t* on_write_request(i_mqtt_client_t* _self)
