@@ -8,6 +8,7 @@
 
 #include "esphome_uart_adapter.h"
 #include "esphome/core/log.h"
+#include <cstdio>
 
 extern "C" {
 #include "tiny_utils.h"
@@ -28,17 +29,37 @@ static void poll(void *context)
 
   if(rx_bytes > 0) {
     ESP_LOGV(TAG, "poll: %d byte(s) available", rx_bytes);
-  }
 
-  while(rx_bytes--) {
-    uint8_t byte;
-    if(!self->uart->read_byte(&byte)) {
-      ESP_LOGV(TAG, "poll: read_byte failed with %d remaining", rx_bytes + 1);
-      break;
+    // Build a hex dump at DEBUG level so received bytes are visible without
+    // VERY_VERBOSE logging. Each byte formats as "XX " (3 chars).
+    // Buffer covers kMaxHexDumpBytes bytes (≥13, a full wire-level GEA2 frame).
+    static constexpr int kMaxHexDumpBytes = 26;
+    static constexpr int kHexByteFmtLen = 3;  // "XX " per byte
+    char hex_str[kMaxHexDumpBytes * kHexByteFmtLen + 1];
+    int hex_pos = 0;
+
+    while(rx_bytes--) {
+      uint8_t byte;
+      if(!self->uart->read_byte(&byte)) {
+        ESP_LOGV(TAG, "poll: read_byte failed with %d remaining", rx_bytes + 1);
+        break;
+      }
+      ESP_LOGV(TAG, "poll: RX 0x%02X", byte);
+      int remaining = (int)sizeof(hex_str) - hex_pos;
+      if(remaining > kHexByteFmtLen) {  // need kHexByteFmtLen+1 chars (incl. null)
+        snprintf(hex_str + hex_pos, remaining, "%02X ", byte);
+        hex_pos += kHexByteFmtLen;
+      }
+      tiny_uart_on_receive_args_t args = {byte};
+      tiny_event_publish(&self->receive_event, &args);
     }
-    ESP_LOGV(TAG, "poll: RX 0x%02X", byte);
-    tiny_uart_on_receive_args_t args = {byte};
-    tiny_event_publish(&self->receive_event, &args);
+    if(hex_pos > 0) {
+      hex_str[hex_pos - 1] = '\0';  // trim trailing space
+    }
+    else {
+      hex_str[0] = '\0';
+    }
+    ESP_LOGD(TAG, "poll: RX [%s]", hex_str);
   }
 
   if(self->sent) {
