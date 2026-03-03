@@ -462,26 +462,78 @@ before the reflection is even available. The next iteration of the byte chain
 must wait until the next `loop()` call — exactly the same situation as
 calling `tiny_timer_group_run()` once per `loop()`.
 
-### Fix — unconditional fixed-iteration loop
+### Fix — wall-clock tight loop + tick-counter time source for GEA2 internals
+
+Two changes are required to make both TX and RX reliable:
+
+#### TX: wall-clock tight loop
 
 ```cpp
-static constexpr int kLoopIterations = 512;
-for(int i = 0; i < kLoopIterations; i++) {
+static constexpr uint32_t kLoopDurationMs = 35;
+uint32_t loop_start_ms = esphome::millis();
+while (esphome::millis() - loop_start_ms < kLoopDurationMs) {
   tiny_timer_group_run(&timer_group_);
   tiny_gea2_interface_run(&gea2_interface_);
 }
 ```
 
-Running 512 iterations per `loop()` call ensures `poll()` fires repeatedly
-over a window of ~3–13 ms (depending on hardware speed). A byte sent in the
-first few iterations (when the 1 ms msec-interrupt timer fires) has its
-reflection arrive within iteration ~20–100, well within the 6 ms
-`reflection_timeout`. The entire byte chain for a GEA2 frame completes
-within a single `loop()` call.
+Running for 35 ms per `loop()` call ensures `poll()` fires repeatedly so
+each TX byte's reflection is read within the 6 ms `reflection_timeout`,
+and the entire TX + response cycle (~41 ms) can complete within a single
+`loop()` call.
 
-This matches the behaviour of the reference Arduino implementation
-(`paulgoodjohn/home-assistant-adapter`) which calls `tiny_timer_group_run()`
-once per Arduino `loop()` iteration at >10 kHz.
+#### RX: tick-counter time source for the GEA2 interface
+
+`tiny_gea2_interface.c`'s `msec_interrupt_callback` calls
+`tiny_timer_group_run(&self->timer_group)` using the wall-clock time
+source. After the ~50 ms ESPHome framework gap between `loop()` calls,
+the first `msec_interrupt_callback` in the new loop computes
+`delta = millis_now - last_run ≈ 50 ms`. If the GEA2 FSM is in
+`state_receive` at that moment (e.g., the response arrived at the end
+of the previous window and was only partially read), the 6 ms interbyte
+timeout fires immediately with that 50 ms delta, transitioning the FSM
+out of `state_receive` and silently discarding the partial frame —
+**even though all the response bytes are already sitting in the UART FIFO
+waiting to be read**.
+
+The fix is to give the GEA2 interface a **tick-counter time source** whose
+value only increments by 1 each time `msec_timer_` fires (once per real
+millisecond within the tight loop). `tiny_timer_group_run(&self->timer_group)`
+then always sees `delta ≤ 1`, so GEA2 internal timers advance by at most 1 ms
+per msec event regardless of wall-clock gaps:
+
+```cpp
+// Global tick counter — incremented once per msec_timer_ fire
+static tiny_time_source_ticks_t g_gea2_tick_count = 0;
+
+static tiny_time_source_ticks_t gea2_tick_ticks(i_tiny_time_source_t *)
+{ return g_gea2_tick_count; }
+
+static const i_tiny_time_source_api_t kGea2TickApi = {gea2_tick_ticks};
+static i_tiny_time_source_t g_gea2_tick_source = {&kGea2TickApi};
+
+// In the msec_timer_ lambda — increment BEFORE publishing the event:
+g_gea2_tick_count++;
+tiny_event_publish(...);
+
+// In tiny_gea2_interface_init — pass tick source, not esphome_time_source_init():
+tiny_gea2_interface_init(&gea2_interface_, ..., &g_gea2_tick_source, ...);
+```
+
+With this change, the timeline is:
+
+1. Response arrives during the 50 ms ESPHome gap → all bytes in UART FIFO.
+2. New `loop()` call starts. First `tiny_timer_group_run(&timer_group_)`:
+   - If `msec_timer_` fires first: `g_gea2_tick_count++` (1 tick),
+     `tiny_timer_group_run(&self->timer_group)` sees delta = 1 ms.
+     Interbyte timer (6 ms) has 5 ms remaining — **does not fire**.
+   - `poll()` fires in the next call: reads all FIFO bytes, resets
+     the interbyte timer, GEA2 FSM processes the complete frame.
+3. `tiny_gea2_interface_run()` delivers the packet. ✓
+
+This matches the reference Arduino implementation: `msec_interrupt_callback`
+is called once per real millisecond and advances the GEA2 timer group by
+exactly 1 ms each time.
 
 ---
 
@@ -491,14 +543,14 @@ once per Arduino `loop()` iteration at >10 kHz.
 |------|--------|
 | `__init__.py` | Replace `home-assistant-bridge` PlatformIO ref with two GitHub URLs |
 | `geappliances_bridge.h` | Remove Arduino stream types; add ESPHome adapters; define named constants for buffer sizes (`kSendQueueBufferSize = 10000`, `kClientQueueBufferSize = 8096`); add `mqtt_was_connected_` for connection tracking |
-| `geappliances_bridge.cpp` | Use `esphome_uart_adapter_init` (pass `this->parent_`) + `esphome_time_source_init`; remove Arduino-specific UART stream setup; track MQTT state in `loop()` instead of `set_on_disconnect`; tight-loop `tiny_timer_group_run` while UART has pending sends to achieve wire-speed frame transmission |
+| `geappliances_bridge.cpp` | Use `esphome_uart_adapter_init` (pass `this->parent_`) + tick-counter time source for GEA2 internal timers; track MQTT state in `loop()` instead of `set_on_disconnect`; tight-loop `tiny_timer_group_run` for 35 ms per `loop()` call; increment `g_gea2_tick_count` in msec lambda to prevent spurious interbyte-timeout after ESPHome loop gap |
 | `Gea2MqttBridge.cpp` | Remove `Arduino.h`, `Preferences.h`, `String`, `Serial`, NV storage; replace with `ESP_LOGI`, `snprintf`, `esp_system.h`; add bounds check on `erd_polling_list` write |
 | `esphome_mqtt_client_adapter.h` | Add `extern "C"` guards; use `typedef struct … _t` naming |
 | `esphome_mqtt_client_adapter.cpp` | Fix vtable / struct designated-initializer field order; resolve ambiguous `publish()` overload; widen hex-encode loop variable to `uint16_t`; match reference MQTT topic names and retained flags |
 | `i_mqtt_client.h` *(vendored)* | Pure-C interface header copied from `geappliances/home-assistant-bridge` to avoid pulling in Arduino-only source files |
 | `esphome_uart_adapter.h` *(new)* | Polling-based `i_tiny_uart_t` adapter for `uart::UARTComponent`; removed redundant `extern "C"` guards (function uses C++ types) |
 | `esphome_uart_adapter.cpp` *(new)* | Implementation; **poll period changed 1→0** to match reference and prevent inter-byte gap misfire at 19200 baud; capture available count once matching reference pattern |
-| `esphome_time_source.h` *(new)* | `i_tiny_time_source_t` adapter header |
+| `esphome_time_source.h` *(new)* | `i_tiny_time_source_t` adapter header (used for outer `timer_group_`) |
 | `esphome_time_source.cpp` *(new)* | Implementation wrapping `esphome::millis()` |
 | `ApplianceErds.cpp` | Add `static` to `smallApplianceErdCount` and `energyErds` to prevent external linkage conflicts |
 | `Gea2MqttBridge.h` | Unchanged — already a pure C-compatible header |

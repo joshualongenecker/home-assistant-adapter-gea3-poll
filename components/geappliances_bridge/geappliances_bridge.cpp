@@ -16,6 +16,33 @@ static const tiny_gea2_erd_client_configuration_t client_configuration = {
   .request_retries = 10
 };
 
+// Tick-counter time source for the GEA2 interface's internal timer group.
+//
+// Problem: tiny_gea2_interface.c's msec_interrupt_callback() calls
+// tiny_timer_group_run(&self->timer_group) using the wall-clock time source
+// (esphome::millis()).  After the ~50 ms ESPHome framework gap between our
+// loop() calls, the first msec_interrupt_callback in the new loop sees
+// accumulated delta = 50 ms.  If the GEA2 FSM is in state_receive (partially
+// received response frame), the 6 ms interbyte timeout fires immediately with
+// that 50 ms delta, transitioning the FSM out of state_receive and silently
+// discarding the partial frame before poll() can read the remaining bytes.
+//
+// Fix: give the GEA2 interface a tick-counter time source whose value only
+// increments by 1 each time msec_timer_ fires (once per 1 ms of wall-clock
+// time within the tight loop).  tiny_timer_group_run(&self->timer_group) then
+// always sees delta ≤ 1 regardless of wall-clock gaps, so GEA2 internal timers
+// advance by at most 1 ms per msec event — matching the reference Arduino
+// implementation's behavior.
+static tiny_time_source_ticks_t g_gea2_tick_count = 0;
+
+static tiny_time_source_ticks_t gea2_tick_ticks(i_tiny_time_source_t *)
+{
+  return g_gea2_tick_count;
+}
+
+static const i_tiny_time_source_api_t kGea2TickApi = {gea2_tick_ticks};
+static i_tiny_time_source_t g_gea2_tick_source = {&kGea2TickApi};
+
 namespace esphome {
 namespace geappliances_bridge {
 
@@ -43,6 +70,11 @@ void GEAppliancesBridgeComponent::setup()
   tiny_event_init(&msec_interrupt_);
   tiny_timer_start_periodic(
     &timer_group_, &msec_timer_, 1, &msec_interrupt_, +[](void *context) {
+      // Increment the GEA2 tick counter BEFORE publishing so that when
+      // msec_interrupt_callback calls tiny_timer_group_run(&self->timer_group)
+      // it sees delta = 1 (not the wall-clock gap accumulated since setup or
+      // the previous ESPHome loop() call).
+      g_gea2_tick_count++;
       tiny_event_publish(reinterpret_cast<tiny_event_t *>(context), nullptr);
     });
 
@@ -55,7 +87,7 @@ void GEAppliancesBridgeComponent::setup()
   tiny_gea2_interface_init(
     &gea2_interface_,
     &uart_adapter_.interface,
-    esphome_time_source_init(),
+    &g_gea2_tick_source,
     &msec_interrupt_.interface,
     kClientAddress,
     send_queue_buffer_,
@@ -106,23 +138,21 @@ void GEAppliancesBridgeComponent::loop()
   //
   // The complete GEA2 request/response cycle requires:
   //   TX request frame : ~5 ms  (10 bytes at 19200 baud, 0.52 ms/byte)
-  //   Appliance processing + response delay : 5–20 ms
+  //   Appliance processing + response delay : 5–30 ms
   //   RX response frame : ~6 ms  (12 bytes at 0.52 ms/byte)
-  //   Total : up to ~31 ms
+  //   Total : up to ~41 ms
   //
-  // A fixed iteration count (e.g. 512) runs in ~5 ms — enough for TX but the
-  // appliance's response arrives 5–20 ms later, AFTER the loop exits.  Those
-  // bytes sit in the UART FIFO for ~45 ms until the next ESPHome loop() call.
-  // On that next call the first tiny_timer_group_run fires poll() (reads all
-  // FIFO bytes), but the immediately following call fires the 1 ms timer which
-  // runs tiny_timer_group_run(&self->timer_group) with a 50 ms accumulated
-  // delta — causing the GEA2 interbyte timeout (6 ms) to fire immediately,
-  // transitioning the FSM out of state_receive and discarding the partial frame.
+  // Running for kLoopDurationMs (35 ms) keeps the entire cycle within a single
+  // ESPHome loop() call in the common case, matching the reference behavior.
   //
-  // Running for kLoopDurationMs (35 ms) ensures the entire TX + response
-  // cycle completes within a single ESPHome loop() call, matching the reference
-  // implementation's continuous behavior and preventing the interbyte-timeout
-  // race on the receive path.
+  // The GEA2 interface's internal timer group uses a tick-counter time source
+  // (g_gea2_tick_source) instead of wall-clock millis().  This ensures that
+  // msec_interrupt_callback always advances the GEA2 internal timers by exactly
+  // 1 ms per event, even after the ~50 ms ESPHome framework gap between our
+  // loop() calls.  Without this, the first msec_interrupt_callback after the
+  // gap would call tiny_timer_group_run(&self->timer_group) with a 50 ms
+  // accumulated delta, instantly firing the 6 ms interbyte timeout and
+  // discarding any partially-received response frame sitting in the UART FIFO.
   static constexpr uint32_t kLoopDurationMs = 35;
   uint32_t loop_start_ms = esphome::millis();
   while (esphome::millis() - loop_start_ms < kLoopDurationMs) {
