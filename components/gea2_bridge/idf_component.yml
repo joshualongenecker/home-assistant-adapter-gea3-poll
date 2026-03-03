@@ -1,0 +1,14 @@
+## IDF Component Manager manifest for the gea2_bridge ESPHome component.
+##
+## Adds arduino-esp32 as an ESP-IDF component so that Arduino APIs
+## (HardwareSerial / Stream / Preferences / String) are available to the
+## GEA2 bridge code when ESPHome is built with framework: esp-idf.
+##
+## Reference: https://docs.espressif.com/projects/arduino-esp32/en/latest/esp-idf_component.html
+## Install equivalent: idf.py add-dependency "espressif/arduino-esp32^3.3.7"
+
+dependencies:
+  espressif/arduino-esp32:
+    version: "^3.3.7"
+  idf:
+    version: ">=5.1.0"

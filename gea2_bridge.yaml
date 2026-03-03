@@ -1,0 +1,94 @@
+# GEA2 Home-Assistant adapter — ESPHome configuration
+#
+# Target hardware: Seeed XIAO ESP32-C3 on the FirstBuild carrier board
+# (RJ45 GEA2 connector wired to GPIO9 TX / GPIO10 RX).
+#
+# Framework: ESP-IDF with arduino-esp32 added as an IDF component.
+# This gives the GEA2 bridge code full Arduino API access (HardwareSerial,
+# Preferences, String) while keeping ESPHome's native MQTT integration.
+#
+# Reference: https://docs.espressif.com/projects/arduino-esp32/en/latest/esp-idf_component.html
+#
+# Usage
+# -----
+# 1. Copy this file and fill in the secrets below (or use secrets.yaml).
+# 2. Install ESPHome:  pip install esphome
+# 3. Compile & flash:  esphome run gea2_bridge.yaml
+
+substitutions:
+  device_name: gea2-bridge
+  # Unique identifier used as the MQTT topic prefix:
+  #   geappliances/<device_id>/erd/0x<XXXX>/value
+  device_id: "my_gea2_appliance"
+
+esphome:
+  name: ${device_name}
+  friendly_name: "GEA2 Appliance Bridge"
+
+  # platformio_options are forwarded to the underlying PlatformIO build.
+  # lib_deps here supplement the libraries added by the component's __init__.py
+  # (geappliances/home-assistant-bridge and PubSubClient are added there).
+  platformio_options:
+    build_flags:
+      - "-std=gnu++17"
+
+esp32:
+  board: seeed_xiao_esp32c3
+  # Use the ESP-IDF framework so that arduino-esp32 can be added as an IDF
+  # component via components/gea2_bridge/idf_component.yml.
+  framework:
+    type: esp-idf
+    version: recommended
+
+# Enable ESPHome logging (goes to USB-serial, not Serial1 which carries GEA2).
+logger:
+  baud_rate: 115200
+
+# Over-the-air updates.
+ota:
+  - platform: esphome
+    password: !secret ota_password
+
+# WiFi — ESPHome manages the connection; no code needed in the component.
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  ap:
+    ssid: "${device_name} Fallback"
+    password: !secret ap_password
+
+# Captive portal for the fallback AP.
+captive_portal:
+
+# ESPHome native MQTT.  The gea2_bridge component publishes ERD values and
+# subscribes to write topics through this client automatically.
+mqtt:
+  broker: !secret mqtt_broker
+  port: !secret mqtt_port
+  username: !secret mqtt_username
+  password: !secret mqtt_password
+  # Disable ESPHome's built-in discovery topics — the bridge manages its own
+  # topic namespace under geappliances/<device_id>/.
+  discovery: false
+
+# Pull the external component from the local components/ directory.
+external_components:
+  - source:
+      type: local
+      path: components
+
+# GEA2 bridge component.
+#
+# tx_pin / rx_pin — must match the hardware wiring on your carrier board.
+#   Seeed XIAO ESP32-C3 on the FirstBuild board:
+#     D9  = GPIO9  → TX (to appliance RX)
+#     D10 = GPIO10 → RX (from appliance TX)
+#
+# client_address — the GEA2 address this adapter presents on the bus.
+#   0xE4 is the address used by the reference firmware; change only if
+#   another device on the bus already uses it.
+gea2_bridge:
+  device_id: ${device_id}
+  tx_pin: 9     # GPIO9  = D9  on XIAO ESP32-C3
+  rx_pin: 10    # GPIO10 = D10 on XIAO ESP32-C3
+  client_address: 0xE4
