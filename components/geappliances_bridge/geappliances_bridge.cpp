@@ -6,6 +6,7 @@
 #include "geappliances_bridge.h"
 
 #include "esphome/components/mqtt/mqtt_client.h"
+#include "esphome/core/hal.h"
 #include "esphome/core/log.h"
 
 static const char *const TAG = "geappliances_bridge";
@@ -98,22 +99,33 @@ void GEAppliancesBridgeComponent::loop()
   }
   mqtt_was_connected_ = mqtt_connected;
 
-  // Run the GEA2 protocol stack for a fixed number of iterations per ESPHome
-  // loop() call. The GEA2 half-duplex bus uses reflection-based byte chaining:
-  // the interface sends a byte (tiny_uart_send), waits for its echo to arrive
-  // on the RX line, then sends the next byte (signal_byte_received →
-  // send_next_byte in state_send). The reflection_timeout in the GEA2
-  // interface (tiny_gea2_interface.c) is 6 ms; if the reflection is not
-  // received within 6 ms the send is treated as a collision.
+  // Run the GEA2 protocol stack for a fixed wall-clock window per ESPHome
+  // loop() call. The reference Arduino implementation (paulgoodjohn/
+  // home-assistant-adapter) calls tiny_timer_group_run + tiny_gea2_interface_run
+  // once per Arduino loop() which runs at >10 kHz — effectively continuous.
   //
-  // At 19200 baud a byte takes ~0.52 ms to transmit. poll() (period=0 timer)
-  // reads UART bytes and fires the receive_event on every tiny_timer_group_run()
-  // call. Running kLoopIterations iterations per loop() call ensures that poll()
-  // fires enough times to read each reflection well before the 6 ms timeout,
-  // matching the behaviour of the reference Arduino implementation
-  // (paulgoodjohn/home-assistant-adapter) which runs at >10 kHz.
-  static constexpr int kLoopIterations = 512;
-  for(int i = 0; i < kLoopIterations; i++) {
+  // The complete GEA2 request/response cycle requires:
+  //   TX request frame : ~5 ms  (10 bytes at 19200 baud, 0.52 ms/byte)
+  //   Appliance processing + response delay : 5–20 ms
+  //   RX response frame : ~6 ms  (12 bytes at 0.52 ms/byte)
+  //   Total : up to ~31 ms
+  //
+  // A fixed iteration count (e.g. 512) runs in ~5 ms — enough for TX but the
+  // appliance's response arrives 5–20 ms later, AFTER the loop exits.  Those
+  // bytes sit in the UART FIFO for ~45 ms until the next ESPHome loop() call.
+  // On that next call the first tiny_timer_group_run fires poll() (reads all
+  // FIFO bytes), but the immediately following call fires the 1 ms timer which
+  // runs tiny_timer_group_run(&self->timer_group) with a 50 ms accumulated
+  // delta — causing the GEA2 interbyte timeout (6 ms) to fire immediately,
+  // transitioning the FSM out of state_receive and discarding the partial frame.
+  //
+  // Running for kLoopDurationMs (35 ms) ensures the entire TX + response
+  // cycle completes within a single ESPHome loop() call, matching the reference
+  // implementation's continuous behavior and preventing the interbyte-timeout
+  // race on the receive path.
+  static constexpr uint32_t kLoopDurationMs = 35;
+  uint32_t loop_start_ms = esphome::millis();
+  while (esphome::millis() - loop_start_ms < kLoopDurationMs) {
     tiny_timer_group_run(&timer_group_);
     tiny_gea2_interface_run(&gea2_interface_);
   }
