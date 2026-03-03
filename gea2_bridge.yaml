@@ -71,11 +71,15 @@ mqtt:
   # topic namespace under geappliances/<device_id>/.
   discovery: false
 
-# Pull the external component from the local components/ directory.
+# Pull the external component from GitHub.
+# Pin to a specific commit for reproducible builds; update the ref when you
+# pull in new changes from this repository.
 external_components:
   - source:
-      type: local
-      path: components
+      type: git
+      url: https://github.com/joshualongenecker/home-assistant-adapter-gea3-poll
+      ref: 1c62f9e5682de02c32214ca51ea87b9d68748563
+    components: [gea2_bridge]
 
 # GEA2 bridge component.
 #
