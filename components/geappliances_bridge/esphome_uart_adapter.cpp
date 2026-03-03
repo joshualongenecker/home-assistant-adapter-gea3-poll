@@ -59,7 +59,7 @@ static void poll(void *context)
     else {
       hex_str[0] = '\0';
     }
-    ESP_LOGD(TAG, "poll: RX [%s]", hex_str);
+    ESP_LOGV(TAG, "poll: RX [%s]", hex_str);
   }
 
   if(self->sent) {

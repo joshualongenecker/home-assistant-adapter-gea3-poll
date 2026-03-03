@@ -172,13 +172,21 @@ void GEAppliancesBridgeComponent::loop()
   // once per Arduino loop() which runs at >10 kHz — effectively continuous.
   //
   // The complete GEA2 request/response cycle requires:
-  //   TX request frame : ~5 ms  (10 bytes at 19200 baud, 0.52 ms/byte)
+  //   TX request frame : ~6 ms  (11 bytes at 19200 baud, 0.52 ms/byte)
   //   Appliance processing + response delay : 5–30 ms
-  //   RX response frame : ~6 ms  (12 bytes at 0.52 ms/byte)
-  //   Total : up to ~41 ms
+  //   RX response frame : ~7 ms  (13 bytes at 0.52 ms/byte)
+  //   Total : up to ~43 ms worst-case
   //
-  // Running for kLoopDurationMs (35 ms) keeps the entire cycle within a single
-  // ESPHome loop() call in the common case, matching the reference behavior.
+  // kLoopDurationMs (60 ms) covers this worst-case with ~17 ms of headroom
+  // and ensures the entire TX→RX cycle completes within a single ESPHome
+  // loop() call, matching the reference behavior.
+  //
+  // NOTE: poll() must not log at DEBUG level on every byte — doing so adds
+  // ~3–4 ms per byte (serial output overhead at 115200 baud) which inflates
+  // TX from ~6 ms to ~43 ms (observed: 11 bytes × ~3.5 ms overhead each),
+  // blowing the tight-loop window before the appliance responds.
+  // All per-byte traces in poll() use ESP_LOGV (VERBOSE) so they compile to
+  // no-ops at the default DEBUG log level.
   //
   // The GEA2 interface's internal timer group uses a tick-counter time source
   // (g_gea2_tick_source) instead of wall-clock millis().  This ensures that
@@ -188,7 +196,7 @@ void GEAppliancesBridgeComponent::loop()
   // gap would call tiny_timer_group_run(&self->timer_group) with a 50 ms
   // accumulated delta, instantly firing the 6 ms interbyte timeout and
   // discarding any partially-received response frame sitting in the UART FIFO.
-  static constexpr uint32_t kLoopDurationMs = 35;
+  static constexpr uint32_t kLoopDurationMs = 60;
   uint32_t loop_start_ms = esphome::millis();
   while (esphome::millis() - loop_start_ms < kLoopDurationMs) {
     tiny_timer_group_run(&timer_group_);
