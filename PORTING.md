@@ -14,24 +14,25 @@ entry point) were replaced with ESPHome equivalents.
 
 ---
 
-## Framework: Arduino as ESP-IDF Component
+## Framework: Arduino (via ESPHome/PlatformIO)
 
 The reference firmware uses the Arduino framework directly in PlatformIO.
-The ESPHome port uses **ESP-IDF** as the base framework and adds
-**arduino-esp32 as an IDF component** so that all Arduino APIs
+The ESPHome port also uses the **Arduino framework** so that all Arduino APIs
 (`HardwareSerial`, `Preferences`, `String`, `Stream`) remain available to the
-bridge code unchanged.
+bridge code unchanged, and PlatformIO Arduino libraries (especially
+`geappliances/home-assistant-bridge`) resolve correctly via `lib_deps`.
 
-This is the approach described at
-<https://docs.espressif.com/projects/arduino-esp32/en/latest/esp-idf_component.html>:
-
-```
-idf.py add-dependency "espressif/arduino-esp32^3.3.7"
-```
-
-In the ESPHome component this dependency is declared in
-`components/gea2_bridge/idf_component.yml`, which the ESPHome build system
-picks up automatically when `framework: esp-idf` is selected in the YAML.
+> **Design note:** An earlier version of this port used `framework: esp-idf`
+> with `espressif/arduino-esp32` declared as an IDF component via
+> `idf_component.yml`.  That approach failed to compile because:
+> 1. ESPHome's build system does not forward a component's `idf_component.yml`
+>    to the IDF Component Manager, so `Arduino.h` was not found.
+> 2. `geappliances/home-assistant-bridge` is a PlatformIO Arduino library, not
+>    an IDF component; its headers (e.g. `tiny_erd.h`) cannot be resolved via
+>    `idf_component.yml` alone.
+>
+> The `idf_component.yml` file is retained in the component directory for
+> reference but is not used in the Arduino-framework build.
 
 ---
 
@@ -103,41 +104,36 @@ written that implements the same `i_mqtt_client_t` vtable.
 
 ---
 
-### `ApplianceErds.h` (new, matching reference interface)
+### `ApplianceErds.h` (new — copied without modification from reference)
 
-The reference uses a function-based API (`GetCommonErdList()`,
-`GetEnergyErdList()`, `GetApplianceErdList(type)`) declared in `ApplianceErds.h`.
-`Gea2MqttBridge.cpp` calls these functions, so the header was re-created with
-the same signatures.
-
-The `tiny_erd_list_t` struct (two fields: `erdList`, `erdCount`) is
-layout-compatible with `applianceTypeToErdListAndCount_t` in `ErdLists.h`;
-`static_assert` checks confirm this at compile time.
+The reference `ApplianceErds.h` declares a function-based API
+(`GetCommonErdList()`, `GetEnergyErdList()`, `GetApplianceErdList(type)`)
+used by `Gea2MqttBridge.cpp`.  The header is copied verbatim so that no
+changes to `Gea2MqttBridge.cpp` are required.
 
 ---
 
-### `ApplianceErds.cpp` (new, wraps `src/ErdLists.h`)
+### `ApplianceErds.cpp` (new — copied without modification from reference)
 
-Rather than duplicating the 6 000-line `ErdLists.h`, `ApplianceErds.cpp`
-includes it via a relative path (`../../src/ErdLists.h`).  In C++, `const`
-variables at namespace scope have internal linkage by default, so including the
-header in a single translation unit is safe.
+The reference `ApplianceErds.cpp` defines all ERD arrays inline and
+implements the three accessor functions.  It is copied verbatim.
 
-`GetApplianceErdList()` uses `reinterpret_cast` to return a pointer into
-`applianceTypeToErdGroupTranslation[]`; the cast is validated by the
-`static_assert` size/offset checks.
+> **Earlier approach (replaced):** An earlier version of `ApplianceErds.cpp`
+> attempted to reuse `src/ErdLists.h` from the repository root via a relative
+> include (`../../src/ErdLists.h`).  This path resolves correctly when building
+> with PlatformIO from the repo root, but fails in ESPHome's build tree where
+> the component is copied to `src/esphome/components/gea2_bridge/` and the
+> relative path no longer points to the repository root.  Copying the reference
+> file directly avoids this problem entirely.
 
 ---
 
-### `idf_component.yml` (new)
+### `idf_component.yml` (retained, not used)
 
-Declares `espressif/arduino-esp32 ^3.3.7` as an IDF Component Manager
-dependency.  ESPHome picks this up automatically when building with
-`framework: esp-idf`, equivalent to running:
-
-```
-idf.py add-dependency "espressif/arduino-esp32^3.3.7"
-```
+This file was written for the original `framework: esp-idf` design (see
+Framework section above).  It declares `espressif/arduino-esp32 ^3.3.7` as
+an IDF Component Manager dependency.  With `framework: arduino` it is not
+processed and has no effect on the build.
 
 ---
 
@@ -177,13 +173,13 @@ The `retry_delay` (3000 ms), `appliance_lost_timeout` (60 000 ms),
 
 ## Platform differences
 
-| Item | Reference (PlatformIO) | This port (ESPHome + ESP-IDF) |
+| Item | Reference (PlatformIO) | This port (ESPHome + Arduino) |
 |---|---|---|
-| Build system | PlatformIO | ESPHome → PlatformIO → ESP-IDF toolchain |
-| Framework | `framework = arduino` | `framework: esp-idf` + `espressif/arduino-esp32` IDF component |
+| Build system | PlatformIO | ESPHome → PlatformIO → Arduino toolchain |
+| Framework | `framework = arduino` | `framework: arduino` (ESPHome) |
 | WiFi | Managed in `main.cpp` | ESPHome `wifi:` component |
 | MQTT | `PubSubClient` in `main.cpp` | ESPHome `mqtt:` component |
-| NV storage | `Preferences` (unchanged, available via Arduino IDF component) | Same |
+| NV storage | `Preferences` (Arduino) | Same — Arduino framework |
 | Logging | `Serial.println` in bridge code | `Serial.println` in bridge code (unchanged); `ESP_LOGI` in component glue |
 | OTA | PlatformIO upload | ESPHome OTA |
 | LED heartbeat | `digitalWrite(LED_HEARTBEAT, millis() % 1000 < 500)` | Removed (use ESPHome `status_led:` if desired) |

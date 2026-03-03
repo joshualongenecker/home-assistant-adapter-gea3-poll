@@ -1,18 +1,14 @@
 /*!
  * @file
- * @brief ERD list access for various GEA2 appliance types.
+ * @brief Erd list access for various appliances
  *
- * Matches the ApplianceErds.h interface from paulgoodjohn/home-assistant-adapter
- * so that Gea2MqttBridge.cpp compiles without changes.
- *
- * Implementation (ApplianceErds.cpp) pulls ERD data from src/ErdLists.h which
- * is the comprehensive list already present in this repository.
+ * Copied without modification from paulgoodjohn/home-assistant-adapter.
+ * See PORTING.md for details.
  */
 
-#ifndef ApplianceErds_h
-#define ApplianceErds_h
+#ifndef APPLIANCEERDS_H
+#define APPLIANCEERDS_H
 
-#include <stdint.h>
 #include "tiny_erd.h"
 
 typedef struct
@@ -22,18 +18,17 @@ typedef struct
 } tiny_erd_list_t;
 
 /*!
- * Get the list of common ERDs polled for every appliance type.
+ * Get the list of common ERDs
  */
 const tiny_erd_list_t* GetCommonErdList(void);
 
 /*!
- * Get the list of energy-monitoring ERDs.
+ * Get the list of energy ERDs
  */
 const tiny_erd_list_t* GetEnergyErdList(void);
 
 /*!
- * Get the appliance-specific ERD list for the given appliance type byte
- * (as returned by ERD 0x0008). Returns the water-heater list for unknown types.
+ * Get the list of appliance ERDs based on appliance type
  */
 const tiny_erd_list_t* GetApplianceErdList(uint8_t applianceType);
 

@@ -3,11 +3,11 @@
 # Target hardware: Seeed XIAO ESP32-C3 on the FirstBuild carrier board
 # (RJ45 GEA2 connector wired to GPIO9 TX / GPIO10 RX).
 #
-# Framework: ESP-IDF with arduino-esp32 added as an IDF component.
+# Framework: Arduino (via ESPHome/PlatformIO).
 # This gives the GEA2 bridge code full Arduino API access (HardwareSerial,
-# Preferences, String) while keeping ESPHome's native MQTT integration.
-#
-# Reference: https://docs.espressif.com/projects/arduino-esp32/en/latest/esp-idf_component.html
+# Preferences, String) and allows the home-assistant-bridge PlatformIO
+# library to be resolved via lib_deps, while keeping ESPHome's native
+# MQTT integration.
 #
 # Usage
 # -----
@@ -34,11 +34,11 @@ esphome:
 
 esp32:
   board: seeed_xiao_esp32c3
-  # Use the ESP-IDF framework so that arduino-esp32 can be added as an IDF
-  # component via components/gea2_bridge/idf_component.yml.
+  # Use the Arduino framework so that Arduino APIs (HardwareSerial, Preferences,
+  # String, Stream) and PlatformIO Arduino libraries (home-assistant-bridge) are
+  # available to the bridge code without additional configuration.
   framework:
-    type: esp-idf
-    version: recommended
+    type: arduino
 
 # Enable ESPHome logging (goes to USB-serial, not Serial1 which carries GEA2).
 logger:
