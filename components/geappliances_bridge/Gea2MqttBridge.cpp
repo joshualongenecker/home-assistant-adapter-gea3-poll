@@ -171,6 +171,8 @@ static tiny_hsm_result_t State_IdentifyAppliance(tiny_hsm_t *hsm, tiny_hsm_signa
     case signal_read_completed: {
       DisarmRetryTimer(self);
       DisarmLostApplianceTimer(self);
+      ESP_LOGI(TAG, "IdentifyAppliance: read_completed erd=0x%04X src=0x%02X data_size=%u",
+        (unsigned)args->read_completed.erd, (unsigned)args->address, (unsigned)args->read_completed.data_size);
       if(args->read_completed.erd == 0x0008) {
         self->erd_host_address = args->address;
         ESP_LOGI(TAG, "Using GEA address 0x%02X", self->erd_host_address);
@@ -178,7 +180,14 @@ static tiny_hsm_result_t State_IdentifyAppliance(tiny_hsm_t *hsm, tiny_hsm_signa
 
       const uint8_t *applianceTypeResponse = (const uint8_t *)args->read_completed.data;
       self->appliance_type = *applianceTypeResponse;
+      ESP_LOGI(TAG, "Appliance type: 0x%02X", (unsigned)self->appliance_type);
       tiny_hsm_transition(hsm, State_AddCommonErds);
+      break;
+    }
+
+    case signal_read_failed: {
+      ESP_LOGD(TAG, "IdentifyAppliance: read_failed erd=0x%04X reason=%u",
+        (unsigned)args->read_failed.erd, (unsigned)args->read_failed.reason);
       break;
     }
 
@@ -442,19 +451,44 @@ void gea2_mqtt_bridge_init(
 
       switch(args->type) {
         case tiny_gea2_erd_client_activity_type_read_completed:
+          ESP_LOGD(TAG, "ERD client: read_completed src=0x%02X erd=0x%04X size=%u",
+            (unsigned)args->address,
+            (unsigned)args->read_completed.erd,
+            (unsigned)args->read_completed.data_size);
+          if(args->read_completed.data_size > 0) {
+            const uint8_t *d = (const uint8_t *)args->read_completed.data;
+            if(args->read_completed.data_size == 1)
+              ESP_LOGD(TAG, "  data: 0x%02X", d[0]);
+            else if(args->read_completed.data_size == 2)
+              ESP_LOGD(TAG, "  data: 0x%02X 0x%02X", d[0], d[1]);
+            else
+              ESP_LOGD(TAG, "  data[0..2]: 0x%02X 0x%02X 0x%02X", d[0], d[1], d[2]);
+          }
           tiny_hsm_send_signal(&self->hsm, signal_read_completed, args);
           break;
 
         case tiny_gea2_erd_client_activity_type_read_failed:
+          ESP_LOGD(TAG, "ERD client: read_failed src=0x%02X erd=0x%04X reason=%u",
+            (unsigned)args->address,
+            (unsigned)args->read_failed.erd,
+            (unsigned)args->read_failed.reason);
           tiny_hsm_send_signal(&self->hsm, signal_read_failed, args);
           break;
 
         case tiny_gea2_erd_client_activity_type_write_completed:
+          ESP_LOGD(TAG, "ERD client: write_completed erd=0x%04X", (unsigned)args->write_completed.erd);
           mqtt_client_update_erd_write_result(self->mqtt_client, args->write_completed.erd, true, 0);
           break;
 
         case tiny_gea2_erd_client_activity_type_write_failed:
+          ESP_LOGD(TAG, "ERD client: write_failed erd=0x%04X reason=%u",
+            (unsigned)args->write_failed.erd,
+            (unsigned)args->write_failed.reason);
           mqtt_client_update_erd_write_result(self->mqtt_client, args->write_failed.erd, false, args->write_failed.reason);
+          break;
+
+        default:
+          ESP_LOGD(TAG, "ERD client: unknown activity type %d", (int)args->type);
           break;
       }
     });
