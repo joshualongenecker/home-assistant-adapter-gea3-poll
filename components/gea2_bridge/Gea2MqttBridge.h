@@ -16,8 +16,6 @@
 
 #define POLLING_LIST_MAX_SIZE 256
 typedef struct {
-  uint32_t uptime;
-  tiny_erd_t lastErdPolledSuccessfully;
   tiny_erd_t erd_polling_list[POLLING_LIST_MAX_SIZE];
   uint16_t pollingListCount;
   tiny_timer_group_t* timer_group;
@@ -25,7 +23,6 @@ typedef struct {
   i_mqtt_client_t* mqtt_client;
   tiny_timer_t timer;
   tiny_timer_t applianceLostTimer;
-  tiny_timer_t mqttInformationTimer;
   tiny_event_subscription_t mqtt_write_request_subscription;
   tiny_event_subscription_t mqtt_disconnect_subscription;
   tiny_event_subscription_t erd_client_activity_subscription;
