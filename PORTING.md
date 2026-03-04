@@ -43,10 +43,30 @@ bridge code unchanged, and PlatformIO Arduino libraries (especially
 | File | Purpose |
 |---|---|
 | `components/gea2_bridge/Gea2MqttBridge.h` | Bridge struct and `gea2_mqtt_bridge_init` / `gea2_mqtt_bridge_destroy` declarations |
-| `components/gea2_bridge/Gea2MqttBridge.cpp` | Full polling HSM: appliance discovery, common/energy/appliance ERD probing, poll loop, NV storage |
 
-> **No lines were changed in these files.**  Any future update to the
-> reference should be drop-in compatible.
+> `Gea2MqttBridge.cpp` was originally copied verbatim but has since been
+> updated — see the section below.
+
+---
+
+### `Gea2MqttBridge.cpp` — logging updated (Serial → ESP_LOGI / ESP_LOGD)
+
+**Reason for change:** All `Serial.print` / `Serial.println` calls in the
+reference file were replaced with ESPHome log macros so that log output is
+routed through ESPHome's logging infrastructure (native API over WiFi) instead
+of a hardware UART.
+
+| Before | After |
+|---|---|
+| `Serial.println("message")` | `ESP_LOGI(TAG, "message")` |
+| `sprintf(buf, fmt, …); Serial.print(buf)` | `ESP_LOGI(TAG, fmt, …)` |
+| `Serial.println(String(n) + " erds")` | `ESP_LOGI(TAG, "%d erds", n)` |
+| `Serial.print(".")` (poll heartbeat) | `ESP_LOGD(TAG, "polling erd 0x%04X", erd)` |
+| `Serial.print("X")` (poll retry) | `ESP_LOGD(TAG, "poll retry")` |
+
+`#include "esphome/core/log.h"` and `static const char* TAG = "gea2_bridge"`
+were added at the top of the file.  All other logic — HSM, timer usage, NV
+storage, ERD probing — is **identical** to the reference.
 
 ---
 
@@ -180,7 +200,7 @@ The `retry_delay` (3000 ms), `appliance_lost_timeout` (60 000 ms),
 | WiFi | Managed in `main.cpp` | ESPHome `wifi:` component |
 | MQTT | `PubSubClient` in `main.cpp` | ESPHome `mqtt:` component |
 | NV storage | `Preferences` (Arduino) | Same — Arduino framework |
-| Logging | `Serial.println` in bridge code | `Serial.println` in bridge code (unchanged); `ESP_LOGI` in component glue |
+| Logging | `Serial.println` in bridge code | `ESP_LOGI` / `ESP_LOGD` everywhere; output via ESPHome native API (WiFi) only — `logger: baud_rate: 0` |
 | OTA | PlatformIO upload | ESPHome OTA |
 | LED heartbeat | `digitalWrite(LED_HEARTBEAT, millis() % 1000 < 500)` | Removed (use ESPHome `status_led:` if desired) |
 

@@ -47,15 +47,19 @@ esp32:
   framework:
     type: arduino
 
-# ESPHome logging — routed to UART0 (GPIO20=RX, GPIO21=TX on ESP32-C3).
-# USB CDC (HWCDC) is disabled via ARDUINO_USB_CDC_ON_BOOT=0 (set automatically
-# by the gea2_bridge component) so that tiny_uart.cpp compiles.  Connect a
-# USB-serial adapter to GPIO20/21 for development logging, or rely on WiFi
-# logging via the ESPHome API (visible in the ESPHome dashboard) for normal
-# operation.
+# ESPHome logging — output via WiFi only (native API / ESPHome dashboard).
+# baud_rate: 0 disables the hardware UART so log messages are sent only over
+# the native API when a client is connected (e.g. the ESPHome dashboard).
+# USB CDC (HWCDC) remains disabled via ARDUINO_USB_CDC_ON_BOOT=0 (set
+# automatically by the gea2_bridge component) so that tiny_uart.cpp compiles.
 logger:
-  baud_rate: 115200
-  hardware_uart: UART0
+  baud_rate: 0
+
+# Native ESPHome API — enables WiFi log streaming and OTA visibility in the
+# ESPHome dashboard.  All ESP_LOGI / ESP_LOGD messages (including those from
+# the GEA2 bridge component) are forwarded over this connection.
+api:
+  password: !secret api_password
 
 # Over-the-air updates.
 ota:
