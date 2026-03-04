@@ -76,6 +76,8 @@ static void SavePollingListToNVStore(self_t* self)
     }
     else {
       ESP_LOGE(TAG, "NV storage not cleared");
+    }
+    size_t freeEntries = nvStorage.freeEntries();
     ESP_LOGI(TAG, "Initial free entries = %d", (int)freeEntries);
     size_t bytesWritten = nvStorage.putBytes("erdList", self->erd_polling_list, sizeof(self->erd_polling_list));
     ESP_LOGI(TAG, "Wrote %d bytes to store list", (int)bytesWritten);
