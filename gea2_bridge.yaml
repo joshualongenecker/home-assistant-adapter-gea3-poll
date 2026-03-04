@@ -29,18 +29,25 @@ esphome:
   # lib_deps here supplement the libraries added by the component's __init__.py
   # (geappliances/home-assistant-bridge and PubSubClient are added there).
   platformio_options:
-    build_flags:
-      - "-std=gnu++17"
     # deep+ mode makes PlatformIO recursively scan every library's own includes
     # so that transitive headers (e.g. PubSubClient.h inside home-assistant-bridge)
     # are always found during compilation.
     lib_ldf_mode: deep+
-    # arduino-tiny's tiny_uart.cpp targets platforms where Serial is a HardwareSerial.
-    # On ESP32-C3 with Arduino framework, Serial maps to HWCDC which does not have a
-    # begin(baud, SerialConfig) overload, causing a compilation error.  Our component
-    # uses tiny_uart_adapter_init (passing Serial1) rather than tiny_uart_init, so
-    # tiny_uart.cpp is unused and can be safely excluded from the build.
-    lib_build_filter: "+<*> -<tiny_uart.cpp>"
+    # arduino-tiny's tiny_uart.cpp calls Serial.begin(baud, SerialConfig), but on
+    # ESP32-C3 the board definition sets ARDUINO_USB_CDC_ON_BOOT=1 which maps Serial
+    # to HWCDC.  HWCDC::begin() only accepts a baud rate — the SerialConfig overload
+    # does not exist — so tiny_uart.cpp fails to compile.
+    # Our component uses tiny_uart_adapter_init (which wraps an already-opened
+    # Serial1 stream) and never calls tiny_uart_init, but lib_ldf_mode:deep+ causes
+    # every library source file to be compiled regardless.
+    # Fix: override the board flag so Serial resolves to HardwareSerial(0) (UART0),
+    # which does support begin(baud, SerialConfig).  UART0 is also used for the
+    # ESPHome hardware-serial logger; see logger: section below.
+    build_unflags:
+      - "-DARDUINO_USB_CDC_ON_BOOT=1"
+    build_flags:
+      - "-std=gnu++17"
+      - "-DARDUINO_USB_CDC_ON_BOOT=0"
 
 esp32:
   board: seeed_xiao_esp32c3
@@ -50,9 +57,14 @@ esp32:
   framework:
     type: arduino
 
-# Enable ESPHome logging (goes to USB-serial, not Serial1 which carries GEA2).
+# ESPHome logging — routed to UART0 (GPIO20=RX, GPIO21=TX on ESP32-C3).
+# USB CDC (HWCDC) is disabled via ARDUINO_USB_CDC_ON_BOOT=0 (see build_flags
+# above) so that tiny_uart.cpp compiles.  Connect a USB-serial adapter to
+# GPIO20/21 for development logging, or rely on WiFi logging via the ESPHome
+# API (visible in the ESPHome dashboard) for normal operation.
 logger:
   baud_rate: 115200
+  hardware_uart: UART0
 
 # Over-the-air updates.
 ota:

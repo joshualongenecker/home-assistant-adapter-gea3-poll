@@ -183,3 +183,42 @@ The `retry_delay` (3000 ms), `appliance_lost_timeout` (60 000 ms),
 | Logging | `Serial.println` in bridge code | `Serial.println` in bridge code (unchanged); `ESP_LOGI` in component glue |
 | OTA | PlatformIO upload | ESPHome OTA |
 | LED heartbeat | `digitalWrite(LED_HEARTBEAT, millis() % 1000 < 500)` | Removed (use ESPHome `status_led:` if desired) |
+
+---
+
+## Build flags — `ARDUINO_USB_CDC_ON_BOOT=0`
+
+**Why this flag is required:**
+
+`arduino-tiny` (a transitive dependency of `geappliances/home-assistant-bridge`)
+contains `tiny_uart.cpp` which defines `tiny_uart_init()`.  That function calls:
+
+```cpp
+Serial.begin(baud, static_cast<SerialConfig>(SERIAL_8N1));
+```
+
+On the Seeed XIAO ESP32-C3, the board definition sets `ARDUINO_USB_CDC_ON_BOOT=1`
+which maps `Serial` to `HWCDC` (native USB CDC class).  `HWCDC::begin()` only
+accepts a single baud-rate argument; the two-argument overload does not exist,
+so the file fails to compile:
+
+```
+error: no matching function for call to 'HWCDC::begin(uint32_t&, SerialConfig)'
+```
+
+**Our component does not use `tiny_uart_init`.**  We pass an already-opened
+`Serial1` (`HardwareSerial`) stream to `tiny_uart_adapter_init()`.  However,
+`lib_ldf_mode: deep+` (required so that PlatformIO can resolve `PubSubClient.h`
+as a transitive include of `home-assistant-bridge`) causes ALL library source
+files to be compiled, including the unused `tiny_uart.cpp`.
+
+**Fix:** Add `build_unflags: ["-DARDUINO_USB_CDC_ON_BOOT=1"]` and
+`"-DARDUINO_USB_CDC_ON_BOOT=0"` to `build_flags` in `platformio_options`.
+
+**Side effect:** `Serial` resolves to `HardwareSerial(0)` (UART0, GPIO20=RX,
+GPIO21=TX on ESP32-C3) instead of HWCDC.  The ESPHome logger is explicitly
+configured to use `hardware_uart: UART0`.  USB CDC serial is not available.
+
+For development logging, connect a USB-serial adapter to GPIO20/GPIO21.  For
+normal production operation, use WiFi logging via the ESPHome API (visible in
+the ESPHome dashboard or any ESPHome-compatible app).
