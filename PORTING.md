@@ -212,8 +212,11 @@ error: no matching function for call to 'HWCDC::begin(uint32_t&, SerialConfig)'
 as a transitive include of `home-assistant-bridge`) causes ALL library source
 files to be compiled, including the unused `tiny_uart.cpp`.
 
-**Fix:** Add `build_unflags: ["-DARDUINO_USB_CDC_ON_BOOT=1"]` and
-`"-DARDUINO_USB_CDC_ON_BOOT=0"` to `build_flags` in `platformio_options`.
+**Fix:** The component's `__init__.py` `to_code()` function automatically calls
+`cg.add_build_unflag("-DARDUINO_USB_CDC_ON_BOOT=1")` and
+`cg.add_build_flag("-DARDUINO_USB_CDC_ON_BOOT=0")`.  This applies the fix for
+every user of the component without requiring any manual `platformio_options`
+entries in their ESPHome YAML.
 
 **Side effect:** `Serial` resolves to `HardwareSerial(0)` (UART0, GPIO20=RX,
 GPIO21=TX on ESP32-C3) instead of HWCDC.  The ESPHome logger is explicitly

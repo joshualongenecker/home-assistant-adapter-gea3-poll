@@ -54,3 +54,15 @@ async def to_code(config):
     # Declaring it explicitly ensures PlatformIO adds the library's include path
     # even when the source is compiled inside ESPHome's external-component tree.
     cg.add_library("Preferences", None)
+
+    # arduino-tiny (transitive dep of home-assistant-bridge) contains tiny_uart.cpp
+    # which calls Serial.begin(baud, SerialConfig).  On ESP32-C3 the board definition
+    # sets ARDUINO_USB_CDC_ON_BOOT=1, mapping Serial to HWCDC.  HWCDC::begin() only
+    # accepts a bare baud-rate argument — the SerialConfig overload does not exist —
+    # so the file fails to compile.  Our component never calls tiny_uart_init (we use
+    # tiny_uart_adapter_init with an already-opened Serial1 stream), but lib_ldf_mode
+    # deep+ causes every library source file to be compiled regardless.
+    # Fix: override the flag so Serial resolves to HardwareSerial, which supports
+    # both overloads.
+    cg.add_build_unflag("-DARDUINO_USB_CDC_ON_BOOT=1")
+    cg.add_build_flag("-DARDUINO_USB_CDC_ON_BOOT=0")
