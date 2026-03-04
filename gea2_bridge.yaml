@@ -35,16 +35,12 @@ esphome:
     # so that transitive headers (e.g. PubSubClient.h inside home-assistant-bridge)
     # are always found during compilation.
     lib_ldf_mode: deep+
-    # extra_script adds PubSubClient's src/ to CPPPATH before compilation.
-    # home-assistant-bridge/library.json does not declare PubSubClient as a
-    # dependency, so PlatformIO never adds its include path to that library's
-    # build environment.  The pre-build script patches the SCons CPPPATH so
-    # that HomeAssistantBridge.h (and mqtt_client_adapter.hpp) can find
-    # <PubSubClient.h> during compilation.
-    # NOTE: the path is relative to the ESPHome-generated PlatformIO project
-    # directory (.esphome/build/<device_name>/), where ESPHome copies all
-    # component source files into src/esphome/components/gea2_bridge/.
-    extra_scripts: "pre:src/esphome/components/gea2_bridge/extra_script.py"
+    # arduino-tiny's tiny_uart.cpp targets platforms where Serial is a HardwareSerial.
+    # On ESP32-C3 with Arduino framework, Serial maps to HWCDC which does not have a
+    # begin(baud, SerialConfig) overload, causing a compilation error.  Our component
+    # uses tiny_uart_adapter_init (passing Serial1) rather than tiny_uart_init, so
+    # tiny_uart.cpp is unused and can be safely excluded from the build.
+    lib_build_filter: "+<*> -<tiny_uart.cpp>"
 
 esp32:
   board: seeed_xiao_esp32c3
