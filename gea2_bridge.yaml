@@ -31,6 +31,10 @@ esphome:
   platformio_options:
     build_flags:
       - "-std=gnu++17"
+    # deep+ mode makes PlatformIO recursively scan every library's own includes
+    # so that transitive headers (e.g. PubSubClient.h inside home-assistant-bridge)
+    # are always found during compilation.
+    lib_ldf_mode: deep+
 
 esp32:
   board: seeed_xiao_esp32c3
