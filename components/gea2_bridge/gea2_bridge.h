@@ -13,6 +13,7 @@
 #pragma once
 
 #include "esphome/core/component.h"
+#include "esphome/core/helpers.h"
 #include "esphome_mqtt_adapter.h"
 
 extern "C" {
@@ -49,6 +50,14 @@ class Gea2BridgeComponent : public Component {
   uint8_t client_address_ = 0xE4;
   int tx_pin_ = -1;
   int rx_pin_ = -1;
+
+  // Request the ESPHome main loop to run at maximum speed (no 16 ms sleep).
+  // The GEA2 interface needs tiny_gea2_interface_run() to be called at
+  // baud-rate character frequency (~2 kHz at 19200 baud) to process echoed
+  // bytes within the collision-detection window.  Without this, ESPHome's
+  // default 60 Hz loop rate causes every TX attempt to time out on the echo
+  // check, silencing the TX pin entirely.
+  esphome::HighFrequencyLoopRequester high_freq_;
 
   tiny_timer_group_t timer_group_;
 

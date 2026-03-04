@@ -39,6 +39,10 @@ void Gea2BridgeComponent::setup()
 {
   ESP_LOGI(TAG, "GEA2 bridge startup");
 
+  // Remove ESPHome's default 16 ms loop sleep so tiny_gea2_interface_run() is
+  // called at the frequency the GEA2 protocol requires.
+  high_freq_.start();
+
   ESP_LOGI(TAG, "Timer group startup");
   tiny_timer_group_init(&timer_group_, tiny_time_source_init());
 

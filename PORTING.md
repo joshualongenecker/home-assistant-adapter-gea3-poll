@@ -170,6 +170,38 @@ ESPHome component definition.  Adds:
 
 ---
 
+## ESPHome loop rate — `HighFrequencyLoopRequester`
+
+**Why this is required:**
+
+ESPHome's default main-loop interval is **16 ms (~60 Hz)**.  When the loop
+runs faster than 16 ms, the scheduler inserts a `delay()` to cap the rate.
+
+The GEA2 interface (`tiny_gea2_interface`) uses an echo-based collision
+detection mechanism: after sending each byte, it waits for that byte to
+be echoed back on the RX pin (via the RS-485 transceiver loopback) before
+sending the next one.  The window for detecting a valid echo is on the order
+of one character time — ~0.52 ms at 19 200 baud.
+
+At the default 60 Hz loop rate (16 ms per iteration), `tiny_gea2_interface_run`
+is called every 16 ms.  The UART adapter's poll function (which publishes
+incoming bytes as events) runs inside `tiny_timer_group_run` on the same
+cadence.  Any echo that arrives 0.52 ms after TX is not processed until up to
+16 ms later — well past the collision-detection timeout.  As a result the
+interface never successfully completes a TX handshake, and the TX pin stays
+silent.
+
+The reference firmware avoids this issue because Arduino's `loop()` runs at
+tens-of-kHz when there is no blocking code.
+
+**Fix:** `Gea2BridgeComponent::setup()` calls `high_freq_.start()` on an
+`esphome::HighFrequencyLoopRequester` member.  This removes the artificial
+`delay()` from the ESPHome scheduler, allowing the loop to run as fast as
+possible (limited only by FreeRTOS task scheduling, typically >5 kHz), which
+is sufficient for the GEA2 echo window.
+
+---
+
 ## Timers — no changes
 
 The GEA2 interface requires a 1 ms periodic event on the `msec_interrupt`
