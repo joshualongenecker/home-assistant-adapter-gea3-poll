@@ -48,10 +48,37 @@ mqtt:
   discovery_prefix: homeassistant
 
 # UART configuration for GEA2 communication
-# GEA2 uses 19200 baud on the older appliances
+# GEA2 uses 19200 baud on the older appliances.
+#
+# IMPORTANT: tx_pin MUST use open_drain: true on this carrier board.
+#
+# The GEA2 bus transceiver circuit uses a PNP transistor (Q102, DTA143XU)
+# driven by an open-drain TX buffer (U101, M74VHC1G07) to source current
+# onto the 5 V GEA2 bus. When the TX GPIO is in the default push-pull mode,
+# the UART idle state (TX=HIGH) fully saturates Q102, actively driving the bus
+# to 5 V through R101 (120 Ω). When the appliance tries to respond by pulling
+# the bus LOW, it fights Q102's strong high-side drive; the bus only drops to
+# ~4 V (≈ 8 mA × 120 Ω drop), which is not enough for the RX buffer (U102)
+# to register a logic transition on its Schmitt-trigger input — so no appliance
+# bytes are ever received.
+#
+# Configuring TX as open_drain changes the idle (HIGH) behaviour: the ESP32
+# GPIO pad becomes HIGH-Z rather than actively driving 3.3 V. U101's input
+# (which has no external pull) retains the 0 V level from the most recent
+# LOW-driven bit; U101's output stays HIGH-Z, and Q102 is only weakly biased
+# (V_EB ≈ 0.85 V, barely above the ~0.6 V threshold) rather than fully
+# saturated. The appliance's response can then pull the bus to near 0 V,
+# giving U102 a clean logic transition to deliver to the ESP's RX pin.
+#
+# TX LOW ('0' bits / start bit) is unaffected: in open-drain mode the GPIO
+# still actively drives LOW → U101 INA = LOW → U101 stays HIGH-Z → the
+# R104/R105 divider to GND (69 KΩ total) pulls the internal node to GND,
+# and through R101 (120 Ω) that also pulls the external bus to GND.
 uart:
   - id: gea2_uart
-    tx_pin: GPIO9   # D9 on Xiao ESP32-C3
+    tx_pin:
+      number: GPIO9   # D9 on Xiao ESP32-C3
+      open_drain: true  # Required: prevents Q102 from blocking appliance RX (see above)
     rx_pin: GPIO10  # D10 on Xiao ESP32-C3
     baud_rate: 19200
 

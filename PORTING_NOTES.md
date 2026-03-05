@@ -537,7 +537,125 @@ exactly 1 ms each time.
 
 ---
 
-## 14. Summary of all changed / new files
+## 14. GEA2 bus transceiver: TX GPIO must be open-drain
+
+### The circuit
+
+The GE Home Assistant Adapter carrier board uses this TX/RX transceiver:
+
+```
+ESP TX (GPIO9)                           GEA2 bus (5 V rail)
+     │                                         │
+     └──► INA ──[ U101: M74VHC1G07 ]──► OUTY ──┤
+               (open-drain, non-inv.)           │
+                       │                    R103 10 K → 3V3
+                       │                        │
+                   Q102 base ◄──────────────────┘
+               (DTA143XU, PNP, R1=R2=47 KΩ)
+                   Q102 emitter → 5V0
+                   Q102 collector ──────────────► R101 (120 Ω) ──► GEA2 bus pin
+```
+
+Q102 sources current from 5 V onto the GEA2 bus through R101, keeping the bus
+HIGH when the transistor is ON.
+
+The RX buffer (U102, M74VHC1G135DTT1G) reads the bus via a voltage divider
+(R104 = 47 KΩ, R105 = 22 KΩ to GND) and feeds GPIO10 (ESP RX) via a 3V3
+pull-up (R102 = 10 KΩ).
+
+### Symptom: appliance response not received (bus only swings 5 V → 4 V)
+
+When the UART TX GPIO is in the default **push-pull** mode:
+
+| UART TX level | GPIO pad | U101 INA | U101 OUTY | Q102 V_EB | Q102 state | Bus  |
+|---------------|----------|----------|-----------|-----------|------------|------|
+| HIGH (idle)   | 3.3 V    | HIGH     | LOW (~0 V) | **~5 V** | **saturated** | **5 V** |
+| LOW (0 bit)   | 0 V      | LOW      | HIGH-Z    | ~0.85 V   | barely ON  | ~0 V |
+
+When UART is idle (after transmitting a frame, while waiting for the
+appliance's response), TX is HIGH → Q102 fully saturated → bus driven firmly
+to 5 V through R101.
+
+When the appliance responds, it drives the bus LOW externally. The bus voltage
+settles at a level determined by the contest between Q102's source current and
+the appliance's sink current through R101 (120 Ω):
+
+```
+V_bus = 5 V − I_appliance × 120 Ω
+```
+
+A typical appliance bus driver sources ~8–10 mA, giving:
+
+```
+V_bus ≈ 5 V − 8 mA × 120 Ω ≈ 4 V
+```
+
+The voltage divider (R105/(R104+R105) = 22/(47+22) = 22/69) presents
+**4 V × 22/69 ≈ 1.28 V** to U102's Schmitt trigger input. U102's negative
+threshold (VT−) is approximately 1.35 V (at 5 V VCC), so the 1.28 V swing
+does not cross the threshold → U102 output never switches → ESP RX never
+sees a LOW → no bytes received.
+
+This matches the oscilloscope observation: bus idles at 5 V and only drops to
+≈ 4 V when the appliance transmits.
+
+### Why the reference Arduino firmware sees the response
+
+The reference firmware works with the same hardware — the appliance's driver
+provides exactly the same current regardless of which firmware is running.
+The difference is in how the UART TX GPIO is configured.
+
+When the ESPHome UART component initialises the TX pin without `open_drain: true`,
+the GPIO pad is configured as a standard push-pull output (3.3 V when HIGH).
+This fully saturates Q102 and produces the 4 V bus floor described above.
+
+If `open_drain: true` is set (or if the GPIO pad happens to be left in a
+high-impedance state), the idle-HIGH UART output no longer actively drives the
+pad, so Q102 is only weakly biased and the appliance can pull the bus far below
+the U102 threshold.
+
+### Fix — `open_drain: true` on the UART TX pin
+
+```yaml
+uart:
+  - id: gea2_uart
+    tx_pin:
+      number: GPIO9
+      open_drain: true   # ← prevents Q102 full saturation during TX idle
+    rx_pin: GPIO10
+    baud_rate: 19200
+```
+
+With the GPIO pad in open-drain mode:
+
+| UART TX level | GPIO pad     | U101 INA          | U101 OUTY | Q102 V_EB | Bus when appliance drives |
+|---------------|--------------|-------------------|-----------|-----------|--------------------------|
+| HIGH (idle)   | **HIGH-Z**   | retains 0 V (note below) | HIGH-Z | ~0.85 V | Can drop to near 0 V ✓ |
+| LOW (0 bit)   | 0 V (driven) | LOW               | HIGH-Z    | ~0.85 V   | R104/R105 divider (69 KΩ) + R101 pull to GND ✓ |
+
+**Note on U101 INA during idle**: When the UART TX GPIO transitions from LOW
+to HIGH-Z (end of a '0' bit, stop bit, or start of idle after a frame), U101
+INA (M_GEA2_TX line) is left at the 0 V level from the previous actively-driven
+LOW state. The CMOS input of U101 is very high-impedance (~10 MΩ), so the 0 V
+charge stored in the PCB trace / pad capacitance is retained for many
+milliseconds — far longer than the 5–20 ms window in which the appliance
+responds. U101 therefore stays in the HIGH-Z output state, Q102 remains only
+weakly biased, and the bus is free for the appliance to pull LOW.
+
+TX '0' bits and start bits continue to work identically — the GPIO actively
+drives LOW → U101 INA = LOW → U101 stays HIGH-Z → R104/R105 (47 KΩ + 22 KΩ
+in series = 69 KΩ total from the internal node to GND) plus R101 (120 Ω) pull
+the bus to GND.
+
+TX '1' bits / mark / idle (long inter-poll gap): Q102 remains weakly biased
+(V_EB ≈ 0.85 V > 0.6 V turn-on threshold), so it still sources a small amount
+of current into the bus, keeping the bus HIGH during '1' bits. The appliance's
+own bus pull-up reinforces this. The bus is maintained at 5 V between
+transmissions, exactly as the protocol requires.
+
+---
+
+## 15. Summary of all changed / new files
 
 | File | Change |
 |------|--------|
@@ -554,3 +672,4 @@ exactly 1 ms each time.
 | `esphome_time_source.cpp` *(new)* | Implementation wrapping `esphome::millis()` |
 | `ApplianceErds.cpp` | Add `static` to `smallApplianceErdCount` and `energyErds` to prevent external linkage conflicts |
 | `Gea2MqttBridge.h` | Unchanged — already a pure C-compatible header |
+| `esphome_example.yaml` | Add `open_drain: true` to `tx_pin` to prevent Q102 saturation during UART idle (see §14) |
